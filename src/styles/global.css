@@ -1,0 +1,111 @@
+:root {
+  --primary: #4f6df5;
+  --primary-hover: #3d5adf;
+  --success: #16a34a;
+  --success-bg: rgba(22, 163, 74, 0.12);
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.1);
+  --attention: #d97706;
+  --attention-bg: rgba(217, 119, 6, 0.12);
+  --radius: 14px;
+  --shadow-sm: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='light'] {
+  --bg-main: #f2f3f7;
+  --bg-card: rgba(255, 255, 255, 0.75);
+  --bg-card-sec: rgba(0, 0, 0, 0.04);
+  --text-main: #14161a;
+  --text-sec: #6b7280;
+  --border-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='dark'] {
+  --bg-main: #0e0f13;
+  --bg-card: rgba(255, 255, 255, 0.05);
+  --bg-card-sec: rgba(255, 255, 255, 0.06);
+  --text-main: #f5f5f7;
+  --text-sec: #a3a3a3;
+  --border-color: rgba(255, 255, 255, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Manrope', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg-main);
+  color: var(--text-main);
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.elevated-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  padding: 20px;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--text-main);
+  background: var(--bg-card-sec);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 20px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: background 0.2s ease;
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px 20px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-card-sec);
+}

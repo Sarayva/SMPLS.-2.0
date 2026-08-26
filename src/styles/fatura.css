@@ -1,0 +1,94 @@
+.drop-zone {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--radius);
+  padding: 48px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.drop-zone.arrastando {
+  border-color: var(--primary);
+  background: var(--bg-card-sec);
+}
+
+.drop-zone h3 {
+  margin: 12px 0 4px;
+  font-size: 1.05rem;
+}
+
+.drop-zone p {
+  color: var(--text-sec);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.drop-zone .icone {
+  font-size: 2rem;
+}
+
+.fatura-resumo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.fatura-resumo .label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-sec);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.fatura-resumo .valor {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.transacoes-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.transacoes-tabela th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-sec);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.transacoes-tabela td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.transacoes-tabela tr:last-child td {
+  border-bottom: none;
+}
+
+.parcela-tag {
+  font-size: 0.72rem;
+  color: var(--primary);
+  background: rgba(79, 109, 245, 0.12);
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.fatura-acoes {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.fatura-mensagem {
+  margin-top: 16px;
+}

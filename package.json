@@ -1,0 +1,18 @@
+{
+  "name": "smpls",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "firebase": "^10.12.2",
+    "pdfjs-dist": "^6.2.108"
+  }
+}

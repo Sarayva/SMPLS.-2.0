@@ -1,0 +1,183 @@
+.page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 28px 20px 60px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+
+.topbar h1 {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.topbar p {
+  color: var(--text-sec);
+  margin: 2px 0 0;
+  font-size: 0.9rem;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-sec);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.icon-btn:hover {
+  color: var(--text-main);
+}
+
+.month-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 22px;
+}
+
+.month-nav input[type="month"] {
+  font-weight: 600;
+}
+
+.resumo {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.resumo-card {
+  padding: 16px 18px;
+}
+
+.resumo-card .label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-sec);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.resumo-card .valor {
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.resumo-pago .valor { color: var(--success); }
+.resumo-pendente .valor { color: var(--attention); }
+.resumo-atrasado .valor { color: var(--danger); }
+
+.lista-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.lista-header h2 {
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.categoria-grupo {
+  margin-bottom: 20px;
+}
+
+.categoria-titulo {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-sec);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 8px 4px;
+}
+
+.conta-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+}
+
+.conta-check {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  background: transparent;
+  color: transparent;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+
+.conta-check.pago {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+
+.conta-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.conta-nome {
+  font-weight: 600;
+}
+
+.conta-detalhe {
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+
+.conta-valor {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.badge-pago { background: var(--success-bg); color: var(--success); }
+.badge-pendente { background: var(--attention-bg); color: var(--attention); }
+.badge-atrasado { background: var(--danger-bg); color: var(--danger); }
+
+.vazio {
+  color: var(--text-sec);
+  text-align: center;
+  padding: 50px 20px;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 640px) {
+  .resumo { grid-template-columns: repeat(2, 1fr); }
+}

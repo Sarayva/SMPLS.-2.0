@@ -1,0 +1,30 @@
+.renda-resumo {
+  margin-bottom: 24px;
+}
+
+.renda-resumo .valor {
+  font-size: 2rem;
+}
+
+.renda-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.renda-nome {
+  font-weight: 600;
+}
+
+.renda-dono {
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+
+.renda-valor {
+  font-weight: 700;
+  color: var(--success);
+}
