@@ -32,6 +32,7 @@ export function abrirModalRenda(uid, renda = null) {
     </div>
   `;
   document.body.appendChild(overlay);
+  document.addEventListener('keydown', fecharAoEsc);
 
   const elErro = document.getElementById('erro-modal');
   function mostrarErro(texto) {
@@ -87,6 +88,11 @@ export function abrirModalRenda(uid, renda = null) {
   });
 }
 
+function fecharAoEsc(e) {
+  if (e.key === 'Escape') fecharModal();
+}
+
 function fecharModal() {
   document.getElementById('modal-overlay')?.remove();
+  document.removeEventListener('keydown', fecharAoEsc);
 }

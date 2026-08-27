@@ -1,221 +1,481 @@
-import { abrirModalConta } from '../components/ContaModal.js';
-import { onAuthChange, signOut } from '../firebase/auth.js';
-import { buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
-import { desmarcarPago, marcarPago, mesAtualISO, ouvirContas, statusConta } from '../services/contasService.js';
+import { abrirModalDetalheCategoria } from '../components/DetalheCategoriaModal.js';
+import { ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
+import { onAuthChange } from '../firebase/auth.js';
+import { anosComDados, calcularGastosPorMeses, itensDasCategorias, mesesDoAno, somarCategorias } from '../services/analisesService.js';
+import {
+  PADRAO_CARTAO,
+  PADRAO_CONTAS,
+  adicionarCategoria,
+  buscarCategorias,
+  garantirCategoriasPadrao,
+} from '../services/categoriasService.js';
+import { chaveCompra, definirCategoriaCompra, ouvirCategoriasCompras } from '../services/categoriasComprasService.js';
+import { mesAtualISO, ouvirContas, salvarConta } from '../services/contasService.js';
+import { encontrarFaturasDuplicadas, mesclarFaturasDuplicadas, ouvirFaturas } from '../services/faturasService.js';
+import { anguloDoPonteiro, fatiaNoAngulo, fatiasCategorias, gradienteDonut, pontosLinha } from '../services/graficosService.js';
+import { ouvirParcelamentos } from '../services/parcelamentosService.js';
+import { ouvirRendas } from '../services/rendaService.js';
 import { escapeHTML } from '../services/securityService.js';
-import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
+import { initTheme } from '../services/themeService.js';
 
 initTheme();
 
+const NOMES_MESES = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
+
 let uid = null;
 let contas = [];
+let faturas = [];
+let parcelamentos = [];
+let rendas = [];
 let categoriasContas = [];
-let pararDeOuvir = null;
+let categoriasCartao = [];
+let overridesCompras = {};
 let mesSelecionado = mesAtualISO();
+const estadoDonuts = {};
+
+let parcelamentosCarregados = false;
+let categoriasComprasCarregadas = false;
+let backfillFeito = false;
+
+// Antes de existir a tabela central de categorias de compra, editar a
+// categoria em Parcelamentos só gravava ali — nunca chegava no painel. Isso
+// varre uma vez os parcelamentos já existentes e cria a entrada central pra
+// qualquer um que já tinha sido corrigido manualmente e ficou "preso".
+async function tentarBackfillCategorias() {
+  if (backfillFeito || !parcelamentosCarregados || !categoriasComprasCarregadas || !uid) return;
+  backfillFeito = true;
+  for (const p of parcelamentos) {
+    if (!p.categoria || chaveCompra(p.descricao) in overridesCompras) continue;
+    await definirCategoriaCompra(uid, p.descricao, p.categoria);
+  }
+}
 
 const app = document.getElementById('app');
 
-app.innerHTML = `
-  <div class="page">
-    <div class="topbar">
-      <div>
-        <h1 id="saudacao">Olá 👋</h1>
-        <p>Suas contas fixas, organizadas por mês.</p>
-      </div>
-      <div class="topbar-actions">
-        <a href="/resumo.html" class="icon-btn" title="Resumo do mês">🧮</a>
-        <a href="/fatura.html" class="icon-btn" title="Importar fatura de cartão">💳</a>
-        <a href="/parcelamentos.html" class="icon-btn" title="Parcelamentos">📊</a>
-        <a href="/renda.html" class="icon-btn" title="Renda">💰</a>
-        <a href="/analises.html" class="icon-btn" title="Análises">📈</a>
-        <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
-        <button id="btn-sair" class="icon-btn" title="Sair" type="button">⏻</button>
-      </div>
-    </div>
+const filtrosSidebar = `
+  <div class="painel-filtro">
+    <span class="painel-filtro-titulo">Ano</span>
+    <div id="lista-anos" class="painel-lista-anos"></div>
+  </div>
 
-    <div class="month-nav">
-      <button id="mes-anterior" class="icon-btn" type="button">&#8592;</button>
-      <input type="month" id="mes-input">
-      <button id="mes-proximo" class="icon-btn" type="button">&#8594;</button>
-    </div>
-
-    <div class="resumo">
-      <div class="elevated-card resumo-card">
-        <span class="label">Total do mês</span>
-        <span class="valor" id="resumo-total">R$ 0,00</span>
-      </div>
-      <div class="elevated-card resumo-card resumo-pago">
-        <span class="label">Pago</span>
-        <span class="valor" id="resumo-pago">R$ 0,00</span>
-      </div>
-      <div class="elevated-card resumo-card resumo-pendente">
-        <span class="label">Pendente</span>
-        <span class="valor" id="resumo-pendente">R$ 0,00</span>
-      </div>
-      <div class="elevated-card resumo-card resumo-atrasado">
-        <span class="label">Atrasado</span>
-        <span class="valor" id="resumo-atrasado">R$ 0,00</span>
-      </div>
-    </div>
-
-    <div class="lista-header">
-      <h2>Suas contas</h2>
-      <button id="btn-nova-conta" class="btn-primary" type="button">+ Nova conta</button>
-    </div>
-
-    <div id="lista-contas">
-      <p class="vazio">Carregando...</p>
-    </div>
+  <div class="painel-filtro painel-filtro-meses">
+    <span class="painel-filtro-titulo">Mês</span>
+    <div id="lista-meses" class="painel-lista-meses"></div>
   </div>
 `;
 
+app.innerHTML = `
+  <div class="painel-shell">
+    ${sidebarHTML('geral', filtrosSidebar)}
+
+    <main class="painel-conteudo">
+      <div class="painel-topo">
+        <h1 id="saudacao">Olá 👋</h1>
+        <p>Sua visão geral financeira.</p>
+      </div>
+
+      <div id="aviso-faturas-duplicadas"></div>
+
+      <div id="painel-corpo">
+        <p class="vazio">Carregando...</p>
+      </div>
+    </main>
+  </div>
+`;
+
+ligarSidebar();
+
 function formatarMoeda(valor) {
-  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return (valor ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-function renderizar() {
-  const contasAtivas = contas.filter((c) => c.ativa !== false);
+function renderSparkline(valores, cor) {
+  const { linha, area } = pontosLinha(valores, 160, 46, 4);
+  if (!linha) return '<div class="painel-sparkline-vazio"></div>';
+  return `
+    <svg class="painel-sparkline" viewBox="0 0 160 46" preserveAspectRatio="none">
+      <path d="${area}" fill="${cor}" opacity="0.15" stroke="none"></path>
+      <path d="${linha}" fill="none" stroke="${cor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+    </svg>
+  `;
+}
 
-  let total = 0;
-  let pago = 0;
-  let pendente = 0;
-  let atrasado = 0;
-  const porCategoria = {};
+function renderDonut(categorias, id, meses) {
+  const { total, fatias } = fatiasCategorias(categorias);
+  const gradiente = gradienteDonut(fatias);
+  estadoDonuts[id] = { total, fatias, meses };
 
-  for (const conta of contasAtivas) {
-    const status = statusConta(conta, mesSelecionado);
-    if (status === 'pago') {
-      const valorPago = conta.pagamentos?.[mesSelecionado]?.valorPago ?? conta.valor ?? 0;
-      total += valorPago;
-      pago += valorPago;
-    } else {
-      total += conta.valor ?? 0;
-      if (status === 'atrasado') atrasado += conta.valor ?? 0;
-      else pendente += conta.valor ?? 0;
-    }
-
-    if (!porCategoria[conta.categoria]) porCategoria[conta.categoria] = [];
-    porCategoria[conta.categoria].push(conta);
-  }
-
-  document.getElementById('resumo-total').textContent = formatarMoeda(total);
-  document.getElementById('resumo-pago').textContent = formatarMoeda(pago);
-  document.getElementById('resumo-pendente').textContent = formatarMoeda(pendente);
-  document.getElementById('resumo-atrasado').textContent = formatarMoeda(atrasado);
-
-  const listaEl = document.getElementById('lista-contas');
-
-  if (contasAtivas.length === 0) {
-    listaEl.innerHTML = '<p class="vazio">Nenhuma conta cadastrada ainda. Clique em "+ Nova conta" para começar.</p>';
-    return;
-  }
-
-  const categorias = Object.keys(porCategoria).sort();
-  listaEl.innerHTML = categorias
-    .map((categoria) => {
-      const itens = porCategoria[categoria]
-        .sort((a, b) => a.diaVencimento - b.diaVencimento)
-        .map(renderConta)
-        .join('');
-      return `
-        <div class="categoria-grupo">
-          <p class="categoria-titulo">${escapeHTML(categoria)}</p>
-          ${itens}
+  const legenda = fatias.length
+    ? fatias
+        .map(
+          (f, i) => `
+        <div class="painel-legenda-item" data-donut="${id}" data-idx="${i}">
+          <span class="painel-legenda-dot" style="background:${f.cor}"></span>
+          <span class="painel-legenda-nome">${escapeHTML(f.categoria)}</span>
+          <span class="painel-legenda-pct">${f.percentual.toFixed(0)}%</span>
         </div>
-      `;
-    })
-    .join('');
-}
-
-function renderConta(conta) {
-  const status = statusConta(conta, mesSelecionado);
-  const texto = { pago: 'Pago', pendente: 'Pendente', atrasado: 'Atrasado' }[status];
-
-  let valorTexto;
-  if (status === 'pago') {
-    valorTexto = formatarMoeda(conta.pagamentos?.[mesSelecionado]?.valorPago ?? conta.valor ?? 0);
-  } else if (conta.valor == null) {
-    valorTexto = 'Valor a definir';
-  } else {
-    valorTexto = formatarMoeda(conta.valor);
-  }
+      `
+        )
+        .join('')
+    : '<p class="vazio">Sem gastos no período.</p>';
 
   return `
-    <div class="elevated-card conta-item">
-      <button class="conta-check ${status === 'pago' ? 'pago' : ''}" data-id="${conta.id}" title="Marcar pago/pendente">
-        ${status === 'pago' ? '✓' : ''}
-      </button>
-      <div class="conta-info" data-edit-id="${conta.id}">
-        <div class="conta-nome">${escapeHTML(conta.nome)}</div>
-        <div class="conta-detalhe">Vence dia ${conta.diaVencimento}</div>
+    <div class="painel-donut-linha">
+      <div class="painel-donut" id="donut-${id}" style="background:${gradiente}">
+        <div class="painel-donut-centro">
+          <div id="donut-${id}-valor">
+            <span class="painel-donut-valor-principal">${formatarMoeda(total)}</span>
+          </div>
+        </div>
       </div>
-      <span class="badge badge-${status}">${texto}</span>
-      <span class="conta-valor">${valorTexto}</span>
+      <div class="painel-legenda">${legenda}</div>
     </div>
   `;
 }
 
-function mudarMes(delta) {
-  const [ano, mes] = mesSelecionado.split('-').map(Number);
-  const data = new Date(ano, mes - 1 + delta, 1);
-  mesSelecionado = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`;
-  document.getElementById('mes-input').value = mesSelecionado;
-  renderizar();
+function conteudoCentroDonut(rotulo, valor) {
+  if (rotulo == null) return `<span class="painel-donut-valor-principal">${formatarMoeda(valor)}</span>`;
+  return `
+    <span class="painel-donut-valor-categoria">${escapeHTML(rotulo)}</span>
+    <span class="painel-donut-valor-principal">${formatarMoeda(valor)}</span>
+  `;
 }
 
-document.getElementById('mes-input').value = mesSelecionado;
-document.getElementById('mes-input').addEventListener('change', (e) => {
-  mesSelecionado = e.target.value;
-  renderizar();
-});
-document.getElementById('mes-anterior').onclick = () => mudarMes(-1);
-document.getElementById('mes-proximo').onclick = () => mudarMes(1);
+function fatiaNoPonteiro(donutEl, estado, clientX, clientY) {
+  const rect = donutEl.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const { angulo, distancia } = anguloDoPonteiro(cx, cy, clientX, clientY);
+  const raioExterno = rect.width / 2;
+  // Mede o buraco de verdade em vez de um número fixo, pra acompanhar o CSS
+  // se o tamanho da rosca mudar.
+  const centro = donutEl.querySelector('.painel-donut-centro');
+  const raioInterno = centro ? centro.getBoundingClientRect().width / 2 : raioExterno * 0.6;
+  if (distancia > raioExterno || distancia < raioInterno) return null;
+  return fatiaNoAngulo(estado.fatias, angulo);
+}
 
-document.getElementById('btn-theme').onclick = (e) => {
-  const novoTema = toggleTheme();
-  e.currentTarget.textContent = novoTema === 'dark' ? '☀️' : '🌙';
-};
-
-document.getElementById('btn-sair').onclick = () => signOut();
-
-document.getElementById('btn-nova-conta').disabled = true;
-document.getElementById('btn-nova-conta').onclick = async () => {
-  if (!uid) return;
-  categoriasContas = await buscarCategorias(uid, 'contas');
-  abrirModalConta(uid, null, categoriasContas);
-};
-
-document.getElementById('lista-contas').addEventListener('click', async (e) => {
-  if (!uid) return;
-
-  const check = e.target.closest('[data-id]');
-  if (check) {
-    const conta = contas.find((c) => c.id === check.dataset.id);
-    const status = statusConta(conta, mesSelecionado);
-    if (status === 'pago') {
-      await desmarcarPago(uid, conta.id, mesSelecionado);
-    } else if (conta.valor == null) {
-      const digitado = prompt(`Qual foi o valor de "${conta.nome}" neste mês?`);
-      if (digitado === null) return;
-      const valor = Number(digitado.replace(',', '.'));
-      if (!Number.isFinite(valor) || valor < 0) {
-        alert('Valor inválido.');
-        return;
-      }
-      await marcarPago(uid, conta.id, mesSelecionado, valor);
-    } else {
-      await marcarPago(uid, conta.id, mesSelecionado, conta.valor);
+async function salvarCategoriaItem(item, novaCategoria) {
+  if (item.tipo === 'conta') {
+    const conhecidas = (categoriasContas.length ? categoriasContas.map((c) => c.nome) : PADRAO_CONTAS).map((c) => c.toLowerCase());
+    if (!conhecidas.includes(novaCategoria.toLowerCase())) {
+      await adicionarCategoria(uid, 'contas', novaCategoria);
+      categoriasContas = await buscarCategorias(uid, 'contas');
     }
+    await salvarConta(uid, { categoria: novaCategoria }, item.id);
     return;
   }
 
-  const info = e.target.closest('[data-edit-id]');
-  if (info) {
-    const conta = contas.find((c) => c.id === info.dataset.editId);
-    categoriasContas = await buscarCategorias(uid, 'contas');
-    abrirModalConta(uid, conta, categoriasContas);
+  const conhecidas = (categoriasCartao.length ? categoriasCartao.map((c) => c.nome) : PADRAO_CARTAO).map((c) => c.toLowerCase());
+  if (!conhecidas.includes(novaCategoria.toLowerCase())) {
+    await adicionarCategoria(uid, 'cartao', novaCategoria);
+    categoriasCartao = await buscarCategorias(uid, 'cartao');
   }
-});
+
+  // Uma única gravação por descrição de compra — vale pra qualquer fatura,
+  // passada ou futura, com essa mesma compra. É essa tabela (não a cópia
+  // dentro de cada fatura) que manda de verdade.
+  await definirCategoriaCompra(uid, item.descricaoOriginal, novaCategoria);
+}
+
+function abrirDetalheDaFatia(fatia, meses) {
+  if (!fatia) return;
+  const itens = itensDasCategorias(contas, faturas, fatia.categoriasIncluidas, meses, overridesCompras);
+  const categoriasConhecidas = [...new Set([...categoriasContas.map((c) => c.nome), ...categoriasCartao.map((c) => c.nome)])];
+  abrirModalDetalheCategoria(fatia.categoria, itens, fatia.valor, {
+    categoriasConhecidas,
+    onSalvar: salvarCategoriaItem,
+  });
+}
+
+function ligarInteracaoDonuts() {
+  for (const id of Object.keys(estadoDonuts)) {
+    const donutEl = document.getElementById(`donut-${id}`);
+    const valorEl = document.getElementById(`donut-${id}-valor`);
+    const estado = estadoDonuts[id];
+    if (!donutEl || !valorEl || !estado.fatias.length) continue;
+
+    donutEl.addEventListener('mousemove', (e) => {
+      const fatia = fatiaNoPonteiro(donutEl, estado, e.clientX, e.clientY);
+      valorEl.innerHTML = fatia ? conteudoCentroDonut(fatia.categoria, fatia.valor) : conteudoCentroDonut(null, estado.total);
+    });
+
+    donutEl.addEventListener('mouseleave', () => {
+      valorEl.innerHTML = conteudoCentroDonut(null, estado.total);
+    });
+
+    donutEl.addEventListener('click', (e) => {
+      abrirDetalheDaFatia(fatiaNoPonteiro(donutEl, estado, e.clientX, e.clientY), estado.meses);
+    });
+  }
+
+  document.querySelectorAll('.painel-legenda-item[data-donut]').forEach((item) => {
+    const estado = estadoDonuts[item.dataset.donut];
+    const valorEl = document.getElementById(`donut-${item.dataset.donut}-valor`);
+    if (!estado || !valorEl) return;
+    const fatia = estado.fatias[Number(item.dataset.idx)];
+    if (!fatia) return;
+
+    item.addEventListener('mouseenter', () => {
+      valorEl.innerHTML = conteudoCentroDonut(fatia.categoria, fatia.valor);
+    });
+    item.addEventListener('mouseleave', () => {
+      valorEl.innerHTML = conteudoCentroDonut(null, estado.total);
+    });
+    item.addEventListener('click', () => abrirDetalheDaFatia(fatia, estado.meses));
+  });
+}
+
+function renderBarrasMensais(meses, porMes) {
+  const max = Math.max(...meses.map((m) => porMes[m]?.total ?? 0), 1);
+  const barras = meses
+    .map((m) => {
+      const total = porMes[m]?.total ?? 0;
+      const altura = Math.max((total / max) * 100, total > 0 ? 4 : 1);
+      const nomeMes = NOMES_MESES[Number(m.slice(5, 7)) - 1].slice(0, 3);
+      return `
+        <div class="painel-barra-col">
+          <div class="painel-barra-valor">${total > 0 ? formatarMoeda(total) : ''}</div>
+          <div class="painel-barra" style="height:${altura}%"></div>
+          <span class="painel-barra-label">${nomeMes}</span>
+        </div>
+      `;
+    })
+    .join('');
+  return `<div class="painel-barras">${barras}</div>`;
+}
+
+function renderDetalhamento(categorias) {
+  const total = Object.values(categorias).reduce((s, v) => s + v, 0);
+  if (total === 0) return '<p class="vazio">Sem gastos neste mês.</p>';
+
+  const ordenadas = Object.entries(categorias).sort((a, b) => b[1] - a[1]);
+  const max = ordenadas[0][1];
+
+  return ordenadas
+    .map(
+      ([categoria, valor]) => `
+      <div class="painel-detalhe-linha">
+        <span class="painel-detalhe-nome">${escapeHTML(categoria)}</span>
+        <div class="painel-detalhe-barra-trilho">
+          <div class="painel-detalhe-barra" style="width:${(valor / max) * 100}%"></div>
+        </div>
+        <span class="painel-detalhe-valor">${formatarMoeda(valor)}</span>
+      </div>
+    `
+    )
+    .join('');
+}
+
+function formatarCompetencia(competencia) {
+  if (!competencia) return '—';
+  const [ano, mes] = competencia.split('-');
+  return `${NOMES_MESES[Number(mes) - 1].slice(0, 3).toLowerCase()}/${ano}`;
+}
+
+function renderParcelamentosAtivos() {
+  const ativos = parcelamentos
+    .filter((p) => !p.quitado)
+    .sort((a, b) => (a.mesQuitacaoEstimado || '').localeCompare(b.mesQuitacaoEstimado || ''));
+
+  if (ativos.length === 0) {
+    return '<p class="vazio">Nenhuma parcela ativa no momento.</p>';
+  }
+
+  const linhas = ativos
+    .map((p) => {
+      const progresso = Math.round((p.parcelaAtual / p.parcelaTotal) * 100);
+      return `
+        <div class="painel-parcela-item">
+          <div class="painel-parcela-info">
+            <span class="painel-parcela-nome">${escapeHTML(p.descricao)}</span>
+            <span class="painel-parcela-detalhe">Parcela ${p.parcelaAtual}/${p.parcelaTotal} · quita em ${formatarCompetencia(p.mesQuitacaoEstimado)}</span>
+            <div class="painel-parcela-barra-trilho">
+              <div class="painel-parcela-barra" style="width:${progresso}%"></div>
+            </div>
+          </div>
+          <span class="painel-parcela-valor">${formatarMoeda(p.valorParcela)}</span>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `<div class="painel-parcelas-lista">${linhas}</div>`;
+}
+
+function renderLinhaComparativa(meses, despesasSerie, rendaSerie) {
+  const max = Math.max(...despesasSerie, ...rendaSerie, 1);
+  const despesas = pontosLinha(despesasSerie, 760, 160, 10, max);
+  const renda = pontosLinha(rendaSerie, 760, 160, 10, max);
+  const labels = meses.map((m) => NOMES_MESES[Number(m.slice(5, 7)) - 1].slice(0, 3));
+
+  return `
+    <svg class="painel-linha-grande" viewBox="0 0 760 160" preserveAspectRatio="none">
+      <path d="${renda.linha}" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+      <path d="${despesas.area}" fill="var(--primary-light)" opacity="0.12" stroke="none"></path>
+      <path d="${despesas.linha}" fill="none" stroke="var(--primary-light)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+    </svg>
+    <div class="painel-linha-labels">${labels.map((l) => `<span>${l}</span>`).join('')}</div>
+  `;
+}
+
+function renderAvisoFaturasDuplicadas() {
+  const avisoEl = document.getElementById('aviso-faturas-duplicadas');
+  const duplicadas = encontrarFaturasDuplicadas(faturas);
+
+  if (duplicadas.length === 0) {
+    avisoEl.innerHTML = '';
+    return;
+  }
+
+  const competencias = duplicadas.map((grupo) => grupo[0].competencia).join(', ');
+  avisoEl.innerHTML = `
+    <div class="elevated-card aviso-duplicatas">
+      <span>Encontrei ${duplicadas.length} mês(es) com fatura importada mais de uma vez (${competencias}), duplicando as compras. Vou manter a importação mais recente de cada mês e apagar as repetidas.</span>
+      <button id="btn-corrigir-faturas" class="btn-secondary" type="button">Corrigir</button>
+    </div>
+  `;
+
+  document.getElementById('btn-corrigir-faturas').onclick = async () => {
+    if (!confirm(`Apagar as faturas repetidas de: ${competencias}? Mantenho a mais recente de cada mês.`)) return;
+    const botao = document.getElementById('btn-corrigir-faturas');
+    botao.disabled = true;
+    botao.textContent = 'Corrigindo...';
+    for (const grupo of duplicadas) {
+      await mesclarFaturasDuplicadas(uid, grupo);
+    }
+  };
+}
+
+function renderizar() {
+  renderAvisoFaturasDuplicadas();
+  const corpo = document.getElementById('painel-corpo');
+  const anoSelecionado = Number(mesSelecionado.slice(0, 4));
+  const mesesAno = mesesDoAno(anoSelecionado);
+  const { porMes } = calcularGastosPorMeses(contas, faturas, mesesAno, overridesCompras);
+
+  const rendaTotal = rendas.filter((r) => r.ativa !== false).reduce((s, r) => s + r.valor, 0);
+  const despesasDoMes = porMes[mesSelecionado]?.total ?? 0;
+  const saldoDoMes = rendaTotal - despesasDoMes;
+
+  const mesesAteAgora = mesesAno.filter((m) => m <= mesSelecionado);
+  const despesasSerieAteAgora = mesesAteAgora.map((m) => porMes[m]?.total ?? 0);
+  const saldoSerieAteAgora = despesasSerieAteAgora.map((d) => rendaTotal - d);
+
+  const categoriasAno = somarCategorias(...mesesAno.map((m) => porMes[m]?.categorias ?? {}));
+  const categoriasMes = porMes[mesSelecionado]?.categorias ?? {};
+
+  const limiteLiberado = parcelamentos
+    .filter((p) => p.mesQuitacaoEstimado === mesSelecionado)
+    .reduce((s, p) => s + p.valorParcela, 0);
+
+  const despesasSerieAno = mesesAno.map((m) => porMes[m]?.total ?? 0);
+  const rendaSerieAno = mesesAno.map(() => rendaTotal);
+
+  corpo.innerHTML = `
+    <div class="painel-grid painel-grid-4">
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Saldo do mês</span>
+        <span class="painel-card-valor ${saldoDoMes >= 0 ? 'positivo' : 'negativo'}">${formatarMoeda(saldoDoMes)}</span>
+        ${renderSparkline(saldoSerieAteAgora, saldoDoMes >= 0 ? 'var(--success)' : 'var(--danger)')}
+      </div>
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Despesas do mês</span>
+        <span class="painel-card-valor">${formatarMoeda(despesasDoMes)}</span>
+        ${renderSparkline(despesasSerieAteAgora, 'var(--primary-light)')}
+      </div>
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Renda do mês</span>
+        <span class="painel-card-valor" style="color:var(--success);">${formatarMoeda(rendaTotal)}</span>
+      </div>
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Limite liberado — ${NOMES_MESES[Number(mesSelecionado.slice(5, 7)) - 1]}</span>
+        <span class="painel-card-valor" style="color:var(--success);">${formatarMoeda(limiteLiberado)}</span>
+        <span class="painel-card-nota">Soma das parcelas que terminam neste mês</span>
+      </div>
+    </div>
+
+    <div class="painel-grid painel-grid-1">
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Contas parceladas</span>
+        ${renderParcelamentosAtivos()}
+      </div>
+    </div>
+
+    <div class="painel-grid painel-grid-2">
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Despesas no mês</span>
+        ${renderDonut(categoriasMes, 'mes', [mesSelecionado])}
+      </div>
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Despesas no ano</span>
+        ${renderDonut(categoriasAno, 'ano', mesesAno)}
+      </div>
+    </div>
+
+    <div class="painel-grid painel-grid-2">
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Comparativo mensal — ${anoSelecionado}</span>
+        ${renderBarrasMensais(mesesAno, porMes)}
+      </div>
+      <div class="elevated-card painel-card">
+        <span class="painel-card-titulo">Detalhamento de despesas — ${NOMES_MESES[Number(mesSelecionado.slice(5, 7)) - 1]}</span>
+        <div class="painel-detalhamento">${renderDetalhamento(categoriasMes)}</div>
+      </div>
+    </div>
+
+    <div class="painel-grid painel-grid-1">
+      <div class="elevated-card painel-card">
+        <div class="painel-card-cabecalho">
+          <span class="painel-card-titulo">Renda x despesas — ${anoSelecionado}</span>
+          <div class="painel-legenda-inline">
+            <span><span class="painel-legenda-dot" style="background:var(--success)"></span>Renda</span>
+            <span><span class="painel-legenda-dot" style="background:var(--primary-light)"></span>Despesas</span>
+          </div>
+        </div>
+        ${renderLinhaComparativa(mesesAno, despesasSerieAno, rendaSerieAno)}
+      </div>
+    </div>
+  `;
+
+  ligarInteracaoDonuts();
+}
+
+function renderFiltros() {
+  const anoSelecionado = Number(mesSelecionado.slice(0, 4));
+  const mesAtual = Number(mesSelecionado.slice(5, 7));
+  const anos = anosComDados(contas, faturas);
+
+  document.getElementById('lista-anos').innerHTML = anos
+    .map((ano) => `<button class="painel-chip ${ano === anoSelecionado ? 'ativo' : ''}" data-ano="${ano}" type="button">${ano}</button>`)
+    .join('');
+
+  document.getElementById('lista-meses').innerHTML = NOMES_MESES.map((nome, i) => {
+    const numero = i + 1;
+    return `<button class="painel-chip-mes ${numero === mesAtual ? 'ativo' : ''}" data-mes="${numero}" type="button">${nome}</button>`;
+  }).join('');
+
+  document.getElementById('lista-anos').querySelectorAll('[data-ano]').forEach((btn) => {
+    btn.onclick = () => {
+      const ano = Number(btn.dataset.ano);
+      mesSelecionado = `${ano}-${mesSelecionado.slice(5, 7)}`;
+      renderFiltros();
+      renderizar();
+    };
+  });
+
+  document.getElementById('lista-meses').querySelectorAll('[data-mes]').forEach((btn) => {
+    btn.onclick = () => {
+      const mes = String(btn.dataset.mes).padStart(2, '0');
+      mesSelecionado = `${mesSelecionado.slice(0, 4)}-${mes}`;
+      renderFiltros();
+      renderizar();
+    };
+  });
+}
 
 onAuthChange(async (user) => {
   if (!user) {
@@ -229,13 +489,34 @@ onAuthChange(async (user) => {
 
   await garantirCategoriasPadrao(uid);
   categoriasContas = await buscarCategorias(uid, 'contas');
+  categoriasCartao = await buscarCategorias(uid, 'cartao');
 
-  document.getElementById('btn-nova-conta').disabled = false;
   document.body.dataset.authReady = 'true';
 
-  if (pararDeOuvir) pararDeOuvir();
-  pararDeOuvir = ouvirContas(uid, (novasContas) => {
+  ouvirContas(uid, (novasContas) => {
     contas = novasContas;
+    renderFiltros();
+    renderizar();
+  });
+  ouvirFaturas(uid, (novasFaturas) => {
+    faturas = novasFaturas;
+    renderFiltros();
+    renderizar();
+  });
+  ouvirParcelamentos(uid, (novosParcelamentos) => {
+    parcelamentos = novosParcelamentos;
+    parcelamentosCarregados = true;
+    tentarBackfillCategorias();
+    renderizar();
+  });
+  ouvirRendas(uid, (novasRendas) => {
+    rendas = novasRendas;
+    renderizar();
+  });
+  ouvirCategoriasCompras(uid, (novosOverrides) => {
+    overridesCompras = novosOverrides;
+    categoriasComprasCarregadas = true;
+    tentarBackfillCategorias();
     renderizar();
   });
 });

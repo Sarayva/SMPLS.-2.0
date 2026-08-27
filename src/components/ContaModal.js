@@ -50,6 +50,7 @@ export function abrirModalConta(uid, conta = null, categorias = []) {
     </div>
   `;
   document.body.appendChild(overlay);
+  document.addEventListener('keydown', fecharAoEsc);
 
   const elErro = document.getElementById('erro-modal');
   function mostrarErro(texto) {
@@ -127,6 +128,11 @@ export function abrirModalConta(uid, conta = null, categorias = []) {
   });
 }
 
+function fecharAoEsc(e) {
+  if (e.key === 'Escape') fecharModal();
+}
+
 function fecharModal() {
   document.getElementById('modal-overlay')?.remove();
+  document.removeEventListener('keydown', fecharAoEsc);
 }

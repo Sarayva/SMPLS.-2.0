@@ -1,4 +1,5 @@
 import { onAuthChange, signIn, signUp } from '../firebase/auth.js';
+import { icones } from '../services/icones.js';
 import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
 
 initTheme();
@@ -25,7 +26,7 @@ const app = document.getElementById('app');
 
 app.innerHTML = `
   <div class="login-page">
-    <button id="btn-theme" class="theme-toggle" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
+    <button id="btn-theme" class="theme-toggle" title="Mudar tema" type="button">${getTheme() === 'dark' ? icones.sol : icones.lua}</button>
 
     <div class="login-card elevated-card">
       <div class="login-brand">
@@ -108,7 +109,7 @@ tabCadastro.onclick = () => mudarAba('cadastro');
 
 document.getElementById('btn-theme').onclick = (e) => {
   const novoTema = toggleTheme();
-  e.currentTarget.textContent = novoTema === 'dark' ? '☀️' : '🌙';
+  e.currentTarget.innerHTML = novoTema === 'dark' ? icones.sol : icones.lua;
 };
 
 document.querySelectorAll('.password-toggle').forEach((botao) => {

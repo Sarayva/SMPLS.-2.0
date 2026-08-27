@@ -1,6 +1,6 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
 :root {
-  --primary: #4f6df5;
-  --primary-hover: #3d5adf;
   --success: #16a34a;
   --success-bg: rgba(22, 163, 74, 0.12);
   --danger: #dc2626;
@@ -12,21 +12,37 @@
 }
 
 [data-theme='light'] {
-  --bg-main: #f2f3f7;
-  --bg-card: rgba(255, 255, 255, 0.75);
+  --bg-main: #f7f8fa;
+  --bg-card: rgba(255, 255, 255, 0.6);
+  --bg-card-solido: #ffffff;
   --bg-card-sec: rgba(0, 0, 0, 0.04);
-  --text-main: #14161a;
-  --text-sec: #6b7280;
-  --border-color: rgba(0, 0, 0, 0.08);
+  --text-main: #171717;
+  --text-sec: #737373;
+  --border-color: rgba(17, 17, 17, 0.08);
+  --primary: #0078d4;
+  --primary-hover: #005a9e;
+  --primary-light: #0078d4;
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --blob-1: rgba(0, 120, 212, 0.16);
+  --blob-2: rgba(96, 205, 255, 0.16);
+  --blob-3: rgba(0, 120, 212, 0.08);
 }
 
 [data-theme='dark'] {
-  --bg-main: #0e0f13;
-  --bg-card: rgba(255, 255, 255, 0.05);
+  --bg-main: #202020;
+  --bg-card: rgba(45, 45, 45, 0.5);
+  --bg-card-solido: #2d2d2d;
   --bg-card-sec: rgba(255, 255, 255, 0.06);
-  --text-main: #f5f5f7;
-  --text-sec: #a3a3a3;
-  --border-color: rgba(255, 255, 255, 0.08);
+  --text-main: #ffffff;
+  --text-sec: #c5c5c5;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --primary: #0078d4;
+  --primary-hover: #005a9e;
+  --primary-light: #60cdff;
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --blob-1: rgba(0, 120, 212, 0.3);
+  --blob-2: rgba(96, 205, 255, 0.18);
+  --blob-3: rgba(0, 120, 212, 0.16);
 }
 
 * {
@@ -35,19 +51,26 @@
 
 body {
   margin: 0;
+  min-height: 100vh;
   font-family: 'Manrope', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg-main);
+  background-color: var(--bg-main);
+  background-image:
+    radial-gradient(640px circle at 88% -8%, var(--blob-1), transparent 60%),
+    radial-gradient(520px circle at -8% 28%, var(--blob-2), transparent 60%),
+    radial-gradient(760px circle at 55% 115%, var(--blob-3), transparent 60%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   color: var(--text-main);
-  transition: background 0.3s ease, color 0.3s ease;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .elevated-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-sm), var(--glass-highlight);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   padding: 20px;
 }
 
@@ -68,7 +91,7 @@ textarea {
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: var(--primary);
+  border-color: var(--primary-light);
 }
 
 button {
@@ -108,4 +131,11 @@ button {
 
 .btn-secondary:hover {
   background: var(--bg-card-sec);
+}
+
+.campo-categoria-inline {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  width: 140px;
+  height: auto;
 }

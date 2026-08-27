@@ -1,12 +1,14 @@
+import { ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { pareceSerFaturaNubank, parseNubank } from '../parsers/nubank.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { categorizar } from '../services/categorizacaoService.js';
-import { salvarFatura } from '../services/faturasService.js';
+import { buscarFaturaPorCompetencia, excluirFatura, salvarFatura } from '../services/faturasService.js';
 import { mesclarParcelas } from '../services/parcelamentosService.js';
 import { extrairLinhas } from '../services/pdfService.js';
+import { icones } from '../services/icones.js';
 import { escapeHTML } from '../services/securityService.js';
-import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
+import { initTheme } from '../services/themeService.js';
 
 initTheme();
 
@@ -21,30 +23,25 @@ const pronto = new Promise((resolve) => {
 const app = document.getElementById('app');
 
 app.innerHTML = `
-  <div class="page">
+  <div class="painel-shell">
+    ${sidebarHTML('fatura')}
+
+    <main class="painel-conteudo">
+    <div class="page">
     <div class="topbar">
       <div>
         <h1>Importar fatura</h1>
         <p>Suba o PDF da fatura do cartão — os dados são lidos aqui no navegador.</p>
       </div>
-      <div class="topbar-actions">
-        <a href="/index.html" class="icon-btn" title="Voltar ao dashboard">←</a>
-        <a href="/resumo.html" class="icon-btn" title="Resumo do mês">🧮</a>
-        <a href="/parcelamentos.html" class="icon-btn" title="Ver parcelamentos">📊</a>
-        <a href="/renda.html" class="icon-btn" title="Renda">💰</a>
-        <a href="/analises.html" class="icon-btn" title="Análises">📈</a>
-        <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
-      </div>
     </div>
 
     <div id="conteudo"></div>
+    </div>
+    </main>
   </div>
 `;
 
-document.getElementById('btn-theme').onclick = (e) => {
-  const novoTema = toggleTheme();
-  e.currentTarget.textContent = novoTema === 'dark' ? '☀️' : '🌙';
-};
+ligarSidebar();
 
 const conteudo = document.getElementById('conteudo');
 
@@ -62,7 +59,7 @@ function formatarData(iso) {
 function renderDropZone() {
   conteudo.innerHTML = `
     <div id="drop-zone" class="elevated-card drop-zone">
-      <div class="icone">📄</div>
+      <div class="icone">${icones.documento}</div>
       <h3>Arraste o PDF da fatura aqui</h3>
       <p>ou clique para escolher o arquivo (por enquanto, só faturas do Nubank)</p>
       <input type="file" id="input-arquivo" accept="application/pdf" style="display:none;">
@@ -102,7 +99,7 @@ function renderLendo() {
 function renderErro(mensagem) {
   conteudo.innerHTML = `
     <div class="elevated-card drop-zone">
-      <div class="icone">⚠️</div>
+      <div class="icone alerta">${icones.alerta}</div>
       <h3>Não foi possível importar</h3>
       <p>${escapeHTML(mensagem)}</p>
       <div class="fatura-acoes" style="justify-content:center;">
@@ -192,6 +189,15 @@ function renderPreview(fatura) {
 
   document.getElementById('btn-confirmar').onclick = async () => {
     if (!uid) return;
+
+    const existente = await buscarFaturaPorCompetencia(uid, fatura.competencia);
+    if (existente) {
+      const confirmou = confirm(
+        `Você já importou uma fatura para ${formatarData(fatura.vencimento).slice(3)} antes. Quer substituir a anterior por essa? Clicar em Cancelar não importa essa fatura nova (a antiga continua como está).`
+      );
+      if (!confirmou) return;
+    }
+
     const botao = document.getElementById('btn-confirmar');
     botao.disabled = true;
     botao.textContent = 'Salvando...';
@@ -204,6 +210,7 @@ function renderPreview(fatura) {
         await adicionarCategoria(uid, 'cartao', nome);
       }
 
+      if (existente) await excluirFatura(uid, existente.id);
       await salvarFatura(uid, fatura);
       await mesclarParcelas(uid, fatura);
       document.getElementById('fatura-mensagem').innerHTML =

@@ -1,13 +1,10 @@
+import { ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
+import { categoriaResolvida, definirCategoriaCompra, ouvirCategoriasCompras } from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
-import {
-  atualizarCategoriaParcelamento,
-  encontrarDuplicatas,
-  mesclarDuplicata,
-  ouvirParcelamentos,
-} from '../services/parcelamentosService.js';
+import { encontrarDuplicatas, mesclarDuplicata, ouvirParcelamentos } from '../services/parcelamentosService.js';
 import { escapeHTML } from '../services/securityService.js';
-import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
+import { initTheme } from '../services/themeService.js';
 
 initTheme();
 
@@ -15,23 +12,20 @@ let uid = null;
 let pararDeOuvir = null;
 let categoriasCartao = [];
 let parcelamentosAtuais = [];
+let overridesCompras = {};
 
 const app = document.getElementById('app');
 
 app.innerHTML = `
-  <div class="page">
+  <div class="painel-shell">
+    ${sidebarHTML('parcelamentos')}
+
+    <main class="painel-conteudo">
+    <div class="page">
     <div class="topbar">
       <div>
         <h1>Parcelamentos</h1>
         <p>Compras parceladas no cartão, atualizadas a cada fatura importada.</p>
-      </div>
-      <div class="topbar-actions">
-        <a href="/index.html" class="icon-btn" title="Contas fixas">🏠</a>
-        <a href="/resumo.html" class="icon-btn" title="Resumo do mês">🧮</a>
-        <a href="/fatura.html" class="icon-btn" title="Importar fatura">💳</a>
-        <a href="/renda.html" class="icon-btn" title="Renda">💰</a>
-        <a href="/analises.html" class="icon-btn" title="Análises">📈</a>
-        <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
       </div>
     </div>
 
@@ -42,13 +36,12 @@ app.innerHTML = `
     <div id="lista-parcelamentos">
       <p class="vazio">Carregando...</p>
     </div>
+    </div>
+    </main>
   </div>
 `;
 
-document.getElementById('btn-theme').onclick = (e) => {
-  const novoTema = toggleTheme();
-  e.currentTarget.textContent = novoTema === 'dark' ? '☀️' : '🌙';
-};
+ligarSidebar();
 
 document.getElementById('lista-parcelamentos').addEventListener('click', (e) => {
   const badge = e.target.closest('.badge-categoria');
@@ -60,10 +53,12 @@ function editarCategoriaInline(badge) {
   const parcelamento = parcelamentosAtuais.find((p) => p.id === parcelamentoId);
   if (!parcelamento) return;
 
+  const categoriaAtual = categoriaResolvida(overridesCompras, parcelamento.descricao, parcelamento.categoria);
+
   const campo = document.createElement('input');
   campo.type = 'text';
   campo.setAttribute('list', 'lista-categorias-cartao');
-  campo.value = parcelamento.categoria;
+  campo.value = categoriaAtual;
   campo.className = 'campo-categoria-inline';
   badge.replaceWith(campo);
   campo.focus();
@@ -74,13 +69,20 @@ function editarCategoriaInline(badge) {
     if (salvo) return;
     salvo = true;
     const nova = campo.value.trim();
-    if (nova && nova !== parcelamento.categoria) {
-      const conhecidas = (categoriasCartao.length ? categoriasCartao.map((c) => c.nome) : PADRAO_CARTAO).map((c) => c.toLowerCase());
-      if (!conhecidas.includes(nova.toLowerCase())) {
-        await adicionarCategoria(uid, 'cartao', nova);
-        categoriasCartao = await buscarCategorias(uid, 'cartao');
+    if (nova && nova !== categoriaAtual) {
+      try {
+        const conhecidas = (categoriasCartao.length ? categoriasCartao.map((c) => c.nome) : PADRAO_CARTAO).map((c) => c.toLowerCase());
+        if (!conhecidas.includes(nova.toLowerCase())) {
+          await adicionarCategoria(uid, 'cartao', nova);
+          categoriasCartao = await buscarCategorias(uid, 'cartao');
+        }
+        // Uma única gravação por descrição — vale em qualquer tela e em
+        // qualquer fatura (passada ou futura) com essa mesma compra.
+        await definirCategoriaCompra(uid, parcelamento.descricao, nova);
+      } catch (err) {
+        console.error('Falha ao salvar categoria:', err);
+        alert('Não foi possível salvar essa categoria. Tente de novo.');
       }
-      await atualizarCategoriaParcelamento(uid, parcelamento.id, nova);
     }
   }
 
@@ -108,13 +110,14 @@ function formatarCompetencia(competencia) {
 function renderItem(p) {
   const saldoDevedor = Math.round((p.parcelaTotal - p.parcelaAtual) * p.valorParcela * 100) / 100;
   const progresso = Math.round((p.parcelaAtual / p.parcelaTotal) * 100);
+  const categoria = categoriaResolvida(overridesCompras, p.descricao, p.categoria);
 
   return `
     <div class="elevated-card parcela-item ${p.quitado ? 'quitado' : ''}">
       <div class="parcela-info">
         <div class="parcela-nome">
           ${escapeHTML(p.descricao)}
-          <span class="badge badge-pendente badge-categoria" data-categoria-id="${p.id}" title="Clique para mudar a categoria">${escapeHTML(p.categoria)}</span>
+          <span class="badge badge-pendente badge-categoria" data-categoria-id="${p.id}" title="Clique para mudar a categoria">${escapeHTML(categoria)}</span>
         </div>
         <div class="parcela-detalhe">
           Parcela ${p.parcelaAtual}/${p.parcelaTotal} · ${p.quitado ? 'Quitado' : `Quita em ${formatarCompetencia(p.mesQuitacaoEstimado)}`}
@@ -204,4 +207,9 @@ onAuthChange(async (user) => {
 
   if (pararDeOuvir) pararDeOuvir();
   pararDeOuvir = ouvirParcelamentos(uid, renderizar);
+
+  ouvirCategoriasCompras(uid, (novosOverrides) => {
+    overridesCompras = novosOverrides;
+    renderizar(parcelamentosAtuais);
+  });
 });

@@ -69,7 +69,7 @@
 
 .login-tabs button.active {
   background: var(--bg-card);
-  color: var(--primary);
+  color: var(--primary-light);
   box-shadow: var(--shadow-sm);
 }
 

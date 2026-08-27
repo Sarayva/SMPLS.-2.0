@@ -7,11 +7,10 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         login: resolve(__dirname, 'login.html'),
+        contas: resolve(__dirname, 'contas.html'),
         fatura: resolve(__dirname, 'fatura.html'),
         parcelamentos: resolve(__dirname, 'parcelamentos.html'),
         renda: resolve(__dirname, 'renda.html'),
-        resumo: resolve(__dirname, 'resumo.html'),
-        analises: resolve(__dirname, 'analises.html'),
       },
     },
   },

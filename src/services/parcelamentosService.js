@@ -14,10 +14,6 @@ function somarMeses(competencia, quantidade) {
   return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`;
 }
 
-export async function atualizarCategoriaParcelamento(uid, parcelamentoId, categoria) {
-  await updateDoc(doc(parcelamentosRef(uid), parcelamentoId), { categoria });
-}
-
 export function ouvirParcelamentos(uid, callback) {
   return onSnapshot(query(parcelamentosRef(uid)), (snapshot) => {
     const parcelamentos = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));

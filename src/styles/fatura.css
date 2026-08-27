@@ -24,7 +24,18 @@
 }
 
 .drop-zone .icone {
-  font-size: 2rem;
+  display: flex;
+  justify-content: center;
+  color: var(--text-sec);
+}
+
+.drop-zone .icone svg {
+  width: 36px;
+  height: 36px;
+}
+
+.drop-zone .icone.alerta {
+  color: var(--danger);
 }
 
 .fatura-resumo {
@@ -83,8 +94,8 @@
 
 .parcela-tag {
   font-size: 0.72rem;
-  color: var(--primary);
-  background: rgba(79, 109, 245, 0.12);
+  color: var(--primary-light);
+  background: rgba(0, 120, 212, 0.12);
   padding: 2px 7px;
   border-radius: 999px;
   white-space: nowrap;

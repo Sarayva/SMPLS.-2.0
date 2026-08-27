@@ -1,8 +1,9 @@
 import { abrirModalRenda } from '../components/RendaModal.js';
+import { ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { ouvirRendas } from '../services/rendaService.js';
 import { escapeHTML } from '../services/securityService.js';
-import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
+import { initTheme } from '../services/themeService.js';
 
 initTheme();
 
@@ -13,19 +14,15 @@ let pararDeOuvir = null;
 const app = document.getElementById('app');
 
 app.innerHTML = `
-  <div class="page">
+  <div class="painel-shell">
+    ${sidebarHTML('renda')}
+
+    <main class="painel-conteudo">
+    <div class="page">
     <div class="topbar">
       <div>
         <h1>Renda</h1>
         <p>Suas fontes de renda mensal, e de quem é cada uma.</p>
-      </div>
-      <div class="topbar-actions">
-        <a href="/index.html" class="icon-btn" title="Contas fixas">🏠</a>
-        <a href="/resumo.html" class="icon-btn" title="Resumo do mês">🧮</a>
-        <a href="/analises.html" class="icon-btn" title="Análises">📈</a>
-        <a href="/fatura.html" class="icon-btn" title="Importar fatura">💳</a>
-        <a href="/parcelamentos.html" class="icon-btn" title="Parcelamentos">📊</a>
-        <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
       </div>
     </div>
 
@@ -42,13 +39,12 @@ app.innerHTML = `
     <div id="lista-rendas">
       <p class="vazio">Carregando...</p>
     </div>
+    </div>
+    </main>
   </div>
 `;
 
-document.getElementById('btn-theme').onclick = (e) => {
-  const novoTema = toggleTheme();
-  e.currentTarget.textContent = novoTema === 'dark' ? '☀️' : '🌙';
-};
+ligarSidebar();
 
 document.getElementById('btn-nova-renda').onclick = () => {
   if (!uid) return;

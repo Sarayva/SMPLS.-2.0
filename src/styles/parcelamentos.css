@@ -48,7 +48,7 @@
 
 .progresso-preenchido {
   height: 100%;
-  background: var(--primary);
+  background: var(--primary-light);
   border-radius: 999px;
 }
 
@@ -84,11 +84,4 @@
 
 .badge-categoria {
   cursor: pointer;
-}
-
-.campo-categoria-inline {
-  font-size: 0.72rem;
-  padding: 3px 8px;
-  width: 140px;
-  height: auto;
 }
