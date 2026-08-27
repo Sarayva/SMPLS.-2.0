@@ -70,9 +70,11 @@
   border-bottom: 1px solid var(--border-color);
 }
 
-.transacoes-tabela select {
+.transacoes-tabela input {
   font-size: 0.82rem;
   padding: 5px 8px;
+  width: 100%;
+  min-width: 140px;
 }
 
 .transacoes-tabela tr:last-child td {

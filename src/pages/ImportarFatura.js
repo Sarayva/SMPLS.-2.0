@@ -1,6 +1,6 @@
 import { onAuthChange } from '../firebase/auth.js';
 import { pareceSerFaturaNubank, parseNubank } from '../parsers/nubank.js';
-import { PADRAO_CARTAO, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
+import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { categorizar } from '../services/categorizacaoService.js';
 import { salvarFatura } from '../services/faturasService.js';
 import { mesclarParcelas } from '../services/parcelamentosService.js';
@@ -32,7 +32,6 @@ app.innerHTML = `
         <a href="/resumo.html" class="icon-btn" title="Resumo do mês">🧮</a>
         <a href="/parcelamentos.html" class="icon-btn" title="Ver parcelamentos">📊</a>
         <a href="/renda.html" class="icon-btn" title="Renda">💰</a>
-        <a href="/categorias.html" class="icon-btn" title="Categorias">🏷️</a>
         <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
       </div>
     </div>
@@ -123,9 +122,7 @@ function renderPreview(fatura) {
         <td>${formatarData(t.data)}</td>
         <td>${escapeHTML(t.descricao)}</td>
         <td>
-          <select data-indice-transacao="${indice}">
-            ${opcoesCategoria.map((nome) => `<option value="${escapeHTML(nome)}" ${nome === t.categoria ? 'selected' : ''}>${escapeHTML(nome)}</option>`).join('')}
-          </select>
+          <input type="text" list="lista-categorias-cartao" data-indice-transacao="${indice}" value="${escapeHTML(t.categoria)}">
         </td>
         <td>${t.parcelaTotal ? `<span class="parcela-tag">${t.parcelaAtual}/${t.parcelaTotal}</span>` : '—'}</td>
         <td style="text-align:right;">${formatarMoeda(t.valor)}</td>
@@ -160,6 +157,10 @@ function renderPreview(fatura) {
 
     <div class="elevated-card">
       <h2 style="margin-top:0;">Transações encontradas (${fatura.transacoes.length})</h2>
+      <p style="color:var(--text-sec); font-size:0.85rem; margin-top:-8px;">Confira a categoria de cada compra antes de salvar — pode digitar uma categoria nova se quiser.</p>
+      <datalist id="lista-categorias-cartao">
+        ${opcoesCategoria.map((nome) => `<option value="${escapeHTML(nome)}">`).join('')}
+      </datalist>
       <div style="overflow-x:auto;">
         <table class="transacoes-tabela">
           <thead>
@@ -177,9 +178,9 @@ function renderPreview(fatura) {
     </div>
   `;
 
-  conteudo.querySelectorAll('select[data-indice-transacao]').forEach((select) => {
-    select.onchange = () => {
-      fatura.transacoes[Number(select.dataset.indiceTransacao)].categoria = select.value;
+  conteudo.querySelectorAll('input[data-indice-transacao]').forEach((campo) => {
+    campo.onchange = () => {
+      fatura.transacoes[Number(campo.dataset.indiceTransacao)].categoria = campo.value.trim();
     };
   });
 
@@ -194,6 +195,14 @@ function renderPreview(fatura) {
     botao.disabled = true;
     botao.textContent = 'Salvando...';
     try {
+      const nomesConhecidos = new Set(opcoesCategoria.map((c) => c.toLowerCase()));
+      const novasCategorias = new Set(
+        fatura.transacoes.map((t) => t.categoria).filter((c) => c && !nomesConhecidos.has(c.toLowerCase()))
+      );
+      for (const nome of novasCategorias) {
+        await adicionarCategoria(uid, 'cartao', nome);
+      }
+
       await salvarFatura(uid, fatura);
       await mesclarParcelas(uid, fatura);
       document.getElementById('fatura-mensagem').innerHTML =

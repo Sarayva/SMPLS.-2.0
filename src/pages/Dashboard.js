@@ -27,7 +27,6 @@ app.innerHTML = `
         <a href="/fatura.html" class="icon-btn" title="Importar fatura de cartão">💳</a>
         <a href="/parcelamentos.html" class="icon-btn" title="Parcelamentos">📊</a>
         <a href="/renda.html" class="icon-btn" title="Renda">💰</a>
-        <a href="/categorias.html" class="icon-btn" title="Categorias">🏷️</a>
         <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
         <button id="btn-sair" class="icon-btn" title="Sair" type="button">⏻</button>
       </div>
@@ -179,8 +178,9 @@ document.getElementById('btn-theme').onclick = (e) => {
 document.getElementById('btn-sair').onclick = () => signOut();
 
 document.getElementById('btn-nova-conta').disabled = true;
-document.getElementById('btn-nova-conta').onclick = () => {
+document.getElementById('btn-nova-conta').onclick = async () => {
   if (!uid) return;
+  categoriasContas = await buscarCategorias(uid, 'contas');
   abrirModalConta(uid, null, categoriasContas);
 };
 
@@ -211,6 +211,7 @@ document.getElementById('lista-contas').addEventListener('click', async (e) => {
   const info = e.target.closest('[data-edit-id]');
   if (info) {
     const conta = contas.find((c) => c.id === info.dataset.editId);
+    categoriasContas = await buscarCategorias(uid, 'contas');
     abrirModalConta(uid, conta, categoriasContas);
   }
 });

@@ -1,9 +1,10 @@
-import { PADRAO_CONTAS } from '../services/categoriasService.js';
+import { PADRAO_CONTAS, adicionarCategoria } from '../services/categoriasService.js';
 import { excluirConta, salvarConta } from '../services/contasService.js';
 import { escapeHTML } from '../services/securityService.js';
 
 export function abrirModalConta(uid, conta = null, categorias = []) {
   const sugestoesCategoria = categorias.length ? categorias.map((c) => c.nome) : PADRAO_CONTAS;
+  const nomesConhecidos = new Set(sugestoesCategoria.map((c) => c.toLowerCase()));
   fecharModal();
 
   const overlay = document.createElement('div');
@@ -112,6 +113,9 @@ export function abrirModalConta(uid, conta = null, categorias = []) {
     botao.textContent = 'Salvando...';
 
     try {
+      if (!nomesConhecidos.has(dados.categoria.toLowerCase())) {
+        await adicionarCategoria(uid, 'contas', dados.categoria);
+      }
       await salvarConta(uid, dados, conta?.id);
       fecharModal();
     } catch (err) {
