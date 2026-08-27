@@ -1,6 +1,11 @@
 import { onAuthChange } from '../firebase/auth.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
-import { atualizarCategoriaParcelamento, ouvirParcelamentos } from '../services/parcelamentosService.js';
+import {
+  atualizarCategoriaParcelamento,
+  encontrarDuplicatas,
+  mesclarDuplicata,
+  ouvirParcelamentos,
+} from '../services/parcelamentosService.js';
 import { escapeHTML } from '../services/securityService.js';
 import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
 
@@ -30,6 +35,8 @@ app.innerHTML = `
     </div>
 
     <datalist id="lista-categorias-cartao"></datalist>
+
+    <div id="aviso-duplicatas"></div>
 
     <div id="lista-parcelamentos">
       <p class="vazio">Carregando...</p>
@@ -123,8 +130,38 @@ function renderItem(p) {
   `;
 }
 
+function renderAvisoDuplicatas(parcelamentos) {
+  const avisoEl = document.getElementById('aviso-duplicatas');
+  const duplicatas = encontrarDuplicatas(parcelamentos);
+
+  if (duplicatas.length === 0) {
+    avisoEl.innerHTML = '';
+    return;
+  }
+
+  avisoEl.innerHTML = `
+    <div class="elevated-card aviso-duplicatas">
+      <span>Encontrei ${duplicatas.length} compra(s) que parecem estar duplicadas (registradas em duas linhas por engano, de uma versão anterior do app).</span>
+      <button id="btn-corrigir-duplicatas" class="btn-secondary" type="button">Corrigir</button>
+    </div>
+  `;
+
+  document.getElementById('btn-corrigir-duplicatas').onclick = async () => {
+    const nomes = duplicatas.map((grupo) => `"${grupo[0].descricao}"`).join(', ');
+    if (!confirm(`Vou juntar essas compras em uma linha só, mantendo a parcela mais avançada de cada uma: ${nomes}. Confirma?`)) return;
+
+    const botao = document.getElementById('btn-corrigir-duplicatas');
+    botao.disabled = true;
+    botao.textContent = 'Corrigindo...';
+    for (const grupo of duplicatas) {
+      await mesclarDuplicata(uid, grupo);
+    }
+  };
+}
+
 function renderizar(parcelamentos) {
   parcelamentosAtuais = parcelamentos;
+  renderAvisoDuplicatas(parcelamentos);
   const lista = document.getElementById('lista-parcelamentos');
 
   if (parcelamentos.length === 0) {

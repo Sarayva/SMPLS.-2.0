@@ -1,4 +1,4 @@
-import { collection, db, doc, getDocs, onSnapshot, query, setDoc, updateDoc } from '../firebase/firestore.js';
+import { collection, db, deleteDoc, doc, getDocs, onSnapshot, query, setDoc, updateDoc } from '../firebase/firestore.js';
 
 function parcelamentosRef(uid) {
   return collection(db, 'users', uid, 'parcelamentos');
@@ -23,6 +23,35 @@ export function ouvirParcelamentos(uid, callback) {
     const parcelamentos = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
     callback(parcelamentos);
   });
+}
+
+export function encontrarDuplicatas(parcelamentos) {
+  const grupos = {};
+  for (const p of parcelamentos) {
+    const chave = `${normalizar(p.descricao)}|${p.parcelaTotal}`;
+    (grupos[chave] ??= []).push(p);
+  }
+  return Object.values(grupos).filter((grupo) => grupo.length > 1);
+}
+
+export async function mesclarDuplicata(uid, grupo) {
+  const parcelaAtual = Math.max(...grupo.map((p) => p.parcelaAtual));
+  const vencedor = grupo.find((p) => p.parcelaAtual === parcelaAtual);
+  const competencias = grupo.map((p) => p.ultimaCompetencia).filter(Boolean).sort();
+  const ultimaCompetencia = competencias[competencias.length - 1];
+  const primeiraCompetencia = grupo.map((p) => p.primeiraCompetencia).filter(Boolean).sort()[0];
+
+  await updateDoc(doc(parcelamentosRef(uid), vencedor.id), {
+    parcelaAtual,
+    primeiraCompetencia,
+    ultimaCompetencia,
+    mesQuitacaoEstimado: somarMeses(ultimaCompetencia, vencedor.parcelaTotal - parcelaAtual),
+    quitado: parcelaAtual >= vencedor.parcelaTotal,
+  });
+
+  for (const p of grupo) {
+    if (p.id !== vencedor.id) await deleteDoc(doc(parcelamentosRef(uid), p.id));
+  }
 }
 
 export async function mesclarParcelas(uid, fatura) {
