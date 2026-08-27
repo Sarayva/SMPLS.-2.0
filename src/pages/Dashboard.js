@@ -27,6 +27,7 @@ app.innerHTML = `
         <a href="/fatura.html" class="icon-btn" title="Importar fatura de cartão">💳</a>
         <a href="/parcelamentos.html" class="icon-btn" title="Parcelamentos">📊</a>
         <a href="/renda.html" class="icon-btn" title="Renda">💰</a>
+        <a href="/analises.html" class="icon-btn" title="Análises">📈</a>
         <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
         <button id="btn-sair" class="icon-btn" title="Sair" type="button">⏻</button>
       </div>

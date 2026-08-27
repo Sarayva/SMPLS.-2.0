@@ -22,6 +22,7 @@ app.innerHTML = `
       <div class="topbar-actions">
         <a href="/index.html" class="icon-btn" title="Contas fixas">🏠</a>
         <a href="/resumo.html" class="icon-btn" title="Resumo do mês">🧮</a>
+        <a href="/analises.html" class="icon-btn" title="Análises">📈</a>
         <a href="/fatura.html" class="icon-btn" title="Importar fatura">💳</a>
         <a href="/parcelamentos.html" class="icon-btn" title="Parcelamentos">📊</a>
         <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>

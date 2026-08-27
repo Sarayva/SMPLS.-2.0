@@ -11,6 +11,7 @@ export default defineConfig({
         parcelamentos: resolve(__dirname, 'parcelamentos.html'),
         renda: resolve(__dirname, 'renda.html'),
         resumo: resolve(__dirname, 'resumo.html'),
+        analises: resolve(__dirname, 'analises.html'),
       },
     },
   },
