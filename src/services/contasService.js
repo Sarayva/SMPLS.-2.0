@@ -74,3 +74,25 @@ export function statusConta(conta, mes) {
   if (mes === atual && conta.diaVencimento < new Date().getDate()) return 'atrasado';
   return 'pendente';
 }
+
+export function calcularTotais(contas, mes) {
+  let total = 0;
+  let pago = 0;
+  let pendente = 0;
+  let atrasado = 0;
+
+  for (const conta of contas.filter((c) => c.ativa !== false)) {
+    const status = statusConta(conta, mes);
+    if (status === 'pago') {
+      const valorPago = conta.pagamentos?.[mes]?.valorPago ?? conta.valor ?? 0;
+      total += valorPago;
+      pago += valorPago;
+    } else {
+      total += conta.valor ?? 0;
+      if (status === 'atrasado') atrasado += conta.valor ?? 0;
+      else pendente += conta.valor ?? 0;
+    }
+  }
+
+  return { total, pago, pendente, atrasado };
+}

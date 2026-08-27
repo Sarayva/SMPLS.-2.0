@@ -1,24 +1,9 @@
+import { PADRAO_CONTAS } from '../services/categoriasService.js';
 import { excluirConta, salvarConta } from '../services/contasService.js';
 import { escapeHTML } from '../services/securityService.js';
 
-const SUGESTOES_CATEGORIA = [
-  'Aluguel/Financiamento',
-  'Condomínio',
-  'IPTU',
-  'Energia',
-  'Água',
-  'Gás',
-  'Internet',
-  'Celular',
-  'Streaming',
-  'Plano de saúde',
-  'Academia',
-  'Seguro',
-  'Educação',
-  'Outros',
-];
-
-export function abrirModalConta(uid, conta = null) {
+export function abrirModalConta(uid, conta = null, categorias = []) {
+  const sugestoesCategoria = categorias.length ? categorias.map((c) => c.nome) : PADRAO_CONTAS;
   fecharModal();
 
   const overlay = document.createElement('div');
@@ -37,7 +22,7 @@ export function abrirModalConta(uid, conta = null) {
         <label>Categoria
           <input type="text" id="campo-categoria" list="lista-categorias" placeholder="Ex: Internet" required value="${conta ? escapeHTML(conta.categoria) : ''}">
           <datalist id="lista-categorias">
-            ${SUGESTOES_CATEGORIA.map((c) => `<option value="${c}">`).join('')}
+            ${sugestoesCategoria.map((c) => `<option value="${escapeHTML(c)}">`).join('')}
           </datalist>
         </label>
         <label class="checkbox-linha">

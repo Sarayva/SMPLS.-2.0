@@ -10,6 +10,8 @@ export default defineConfig({
         fatura: resolve(__dirname, 'fatura.html'),
         parcelamentos: resolve(__dirname, 'parcelamentos.html'),
         renda: resolve(__dirname, 'renda.html'),
+        resumo: resolve(__dirname, 'resumo.html'),
+        categorias: resolve(__dirname, 'categorias.html'),
       },
     },
   },

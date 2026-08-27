@@ -1,5 +1,6 @@
 import { abrirModalConta } from '../components/ContaModal.js';
 import { onAuthChange, signOut } from '../firebase/auth.js';
+import { buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { desmarcarPago, marcarPago, mesAtualISO, ouvirContas, statusConta } from '../services/contasService.js';
 import { escapeHTML } from '../services/securityService.js';
 import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
@@ -8,6 +9,7 @@ initTheme();
 
 let uid = null;
 let contas = [];
+let categoriasContas = [];
 let pararDeOuvir = null;
 let mesSelecionado = mesAtualISO();
 
@@ -21,9 +23,11 @@ app.innerHTML = `
         <p>Suas contas fixas, organizadas por mês.</p>
       </div>
       <div class="topbar-actions">
+        <a href="/resumo.html" class="icon-btn" title="Resumo do mês">🧮</a>
         <a href="/fatura.html" class="icon-btn" title="Importar fatura de cartão">💳</a>
         <a href="/parcelamentos.html" class="icon-btn" title="Parcelamentos">📊</a>
         <a href="/renda.html" class="icon-btn" title="Renda">💰</a>
+        <a href="/categorias.html" class="icon-btn" title="Categorias">🏷️</a>
         <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
         <button id="btn-sair" class="icon-btn" title="Sair" type="button">⏻</button>
       </div>
@@ -177,7 +181,7 @@ document.getElementById('btn-sair').onclick = () => signOut();
 document.getElementById('btn-nova-conta').disabled = true;
 document.getElementById('btn-nova-conta').onclick = () => {
   if (!uid) return;
-  abrirModalConta(uid);
+  abrirModalConta(uid, null, categoriasContas);
 };
 
 document.getElementById('lista-contas').addEventListener('click', async (e) => {
@@ -207,11 +211,11 @@ document.getElementById('lista-contas').addEventListener('click', async (e) => {
   const info = e.target.closest('[data-edit-id]');
   if (info) {
     const conta = contas.find((c) => c.id === info.dataset.editId);
-    abrirModalConta(uid, conta);
+    abrirModalConta(uid, conta, categoriasContas);
   }
 });
 
-onAuthChange((user) => {
+onAuthChange(async (user) => {
   if (!user) {
     window.location.href = '/login.html';
     return;
@@ -220,6 +224,10 @@ onAuthChange((user) => {
   uid = user.uid;
   const primeiroNome = (user.displayName || '').split(' ')[0];
   document.getElementById('saudacao').textContent = primeiroNome ? `Olá, ${primeiroNome} 👋` : 'Olá 👋';
+
+  await garantirCategoriasPadrao(uid);
+  categoriasContas = await buscarCategorias(uid, 'contas');
+
   document.getElementById('btn-nova-conta').disabled = false;
   document.body.dataset.authReady = 'true';
 

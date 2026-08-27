@@ -1,5 +1,6 @@
 import { onAuthChange } from '../firebase/auth.js';
 import { pareceSerFaturaNubank, parseNubank } from '../parsers/nubank.js';
+import { PADRAO_CARTAO, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { categorizar } from '../services/categorizacaoService.js';
 import { salvarFatura } from '../services/faturasService.js';
 import { mesclarParcelas } from '../services/parcelamentosService.js';
@@ -11,6 +12,11 @@ initTheme();
 
 let uid = null;
 let faturaExtraida = null;
+let categoriasCartao = [];
+let resolverPronto;
+const pronto = new Promise((resolve) => {
+  resolverPronto = resolve;
+});
 
 const app = document.getElementById('app');
 
@@ -23,8 +29,10 @@ app.innerHTML = `
       </div>
       <div class="topbar-actions">
         <a href="/index.html" class="icon-btn" title="Voltar ao dashboard">←</a>
+        <a href="/resumo.html" class="icon-btn" title="Resumo do mês">🧮</a>
         <a href="/parcelamentos.html" class="icon-btn" title="Ver parcelamentos">📊</a>
         <a href="/renda.html" class="icon-btn" title="Renda">💰</a>
+        <a href="/categorias.html" class="icon-btn" title="Categorias">🏷️</a>
         <button id="btn-theme" class="icon-btn" title="Mudar tema" type="button">${getTheme() === 'dark' ? '☀️' : '🌙'}</button>
       </div>
     </div>
@@ -106,13 +114,19 @@ function renderErro(mensagem) {
 }
 
 function renderPreview(fatura) {
+  const opcoesCategoria = (categoriasCartao.length ? categoriasCartao.map((c) => c.nome) : PADRAO_CARTAO);
+
   const linhasTransacoes = fatura.transacoes
     .map(
-      (t) => `
+      (t, indice) => `
       <tr>
         <td>${formatarData(t.data)}</td>
         <td>${escapeHTML(t.descricao)}</td>
-        <td>${escapeHTML(t.categoria)}</td>
+        <td>
+          <select data-indice-transacao="${indice}">
+            ${opcoesCategoria.map((nome) => `<option value="${escapeHTML(nome)}" ${nome === t.categoria ? 'selected' : ''}>${escapeHTML(nome)}</option>`).join('')}
+          </select>
+        </td>
         <td>${t.parcelaTotal ? `<span class="parcela-tag">${t.parcelaAtual}/${t.parcelaTotal}</span>` : '—'}</td>
         <td style="text-align:right;">${formatarMoeda(t.valor)}</td>
       </tr>
@@ -163,6 +177,12 @@ function renderPreview(fatura) {
     </div>
   `;
 
+  conteudo.querySelectorAll('select[data-indice-transacao]').forEach((select) => {
+    select.onchange = () => {
+      fatura.transacoes[Number(select.dataset.indiceTransacao)].categoria = select.value;
+    };
+  });
+
   document.getElementById('btn-cancelar').onclick = () => {
     faturaExtraida = null;
     renderDropZone();
@@ -198,7 +218,7 @@ async function processarArquivo(arquivo) {
   renderLendo();
 
   try {
-    const linhas = await extrairLinhas(arquivo);
+    const [linhas] = await Promise.all([extrairLinhas(arquivo), pronto]);
 
     if (!pareceSerFaturaNubank(linhas)) {
       renderErro('Esse PDF não parece ser uma fatura do Nubank. Por enquanto só esse banco é suportado.');
@@ -221,10 +241,13 @@ async function processarArquivo(arquivo) {
 
 renderDropZone();
 
-onAuthChange((user) => {
+onAuthChange(async (user) => {
   if (!user) {
     window.location.href = '/login.html';
     return;
   }
   uid = user.uid;
+  await garantirCategoriasPadrao(uid);
+  categoriasCartao = await buscarCategorias(uid, 'cartao');
+  resolverPronto();
 });

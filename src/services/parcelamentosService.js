@@ -29,12 +29,12 @@ export async function mesclarParcelas(uid, fatura) {
   const existentes = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 
   for (const transacao of transacoesParceladas) {
+    // Casamento só por descrição + total de parcelas: o valor da parcela pode
+    // variar alguns centavos entre faturas por arredondamento do banco, então
+    // não pode fazer parte da chave (senão a mesma compra vira duas linhas).
     const chaveDescricao = normalizar(transacao.descricao);
     const existente = existentes.find(
-      (p) =>
-        normalizar(p.descricao) === chaveDescricao &&
-        p.parcelaTotal === transacao.parcelaTotal &&
-        Math.abs(p.valorParcela - transacao.valor) < 0.01
+      (p) => normalizar(p.descricao) === chaveDescricao && p.parcelaTotal === transacao.parcelaTotal
     );
 
     const parcelaAtual = existente ? Math.max(existente.parcelaAtual, transacao.parcelaAtual) : transacao.parcelaAtual;
