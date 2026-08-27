@@ -1,4 +1,4 @@
-import { collection, db, doc, getDocs, onSnapshot, query, setDoc } from '../firebase/firestore.js';
+import { collection, db, doc, getDocs, onSnapshot, query, setDoc, updateDoc } from '../firebase/firestore.js';
 
 function parcelamentosRef(uid) {
   return collection(db, 'users', uid, 'parcelamentos');
@@ -12,6 +12,10 @@ function somarMeses(competencia, quantidade) {
   const [ano, mes] = competencia.split('-').map(Number);
   const data = new Date(ano, mes - 1 + quantidade, 1);
   return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export async function atualizarCategoriaParcelamento(uid, parcelamentoId, categoria) {
+  await updateDoc(doc(parcelamentosRef(uid), parcelamentoId), { categoria });
 }
 
 export function ouvirParcelamentos(uid, callback) {

@@ -1,11 +1,15 @@
 import { onAuthChange } from '../firebase/auth.js';
-import { ouvirParcelamentos } from '../services/parcelamentosService.js';
+import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
+import { atualizarCategoriaParcelamento, ouvirParcelamentos } from '../services/parcelamentosService.js';
 import { escapeHTML } from '../services/securityService.js';
 import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
 
 initTheme();
 
+let uid = null;
 let pararDeOuvir = null;
+let categoriasCartao = [];
+let parcelamentosAtuais = [];
 
 const app = document.getElementById('app');
 
@@ -25,6 +29,8 @@ app.innerHTML = `
       </div>
     </div>
 
+    <datalist id="lista-categorias-cartao"></datalist>
+
     <div id="lista-parcelamentos">
       <p class="vazio">Carregando...</p>
     </div>
@@ -35,6 +41,50 @@ document.getElementById('btn-theme').onclick = (e) => {
   const novoTema = toggleTheme();
   e.currentTarget.textContent = novoTema === 'dark' ? '☀️' : '🌙';
 };
+
+document.getElementById('lista-parcelamentos').addEventListener('click', (e) => {
+  const badge = e.target.closest('.badge-categoria');
+  if (badge && uid) editarCategoriaInline(badge);
+});
+
+function editarCategoriaInline(badge) {
+  const parcelamentoId = badge.dataset.categoriaId;
+  const parcelamento = parcelamentosAtuais.find((p) => p.id === parcelamentoId);
+  if (!parcelamento) return;
+
+  const campo = document.createElement('input');
+  campo.type = 'text';
+  campo.setAttribute('list', 'lista-categorias-cartao');
+  campo.value = parcelamento.categoria;
+  campo.className = 'campo-categoria-inline';
+  badge.replaceWith(campo);
+  campo.focus();
+  campo.select();
+
+  let salvo = false;
+  async function salvar() {
+    if (salvo) return;
+    salvo = true;
+    const nova = campo.value.trim();
+    if (nova && nova !== parcelamento.categoria) {
+      const conhecidas = (categoriasCartao.length ? categoriasCartao.map((c) => c.nome) : PADRAO_CARTAO).map((c) => c.toLowerCase());
+      if (!conhecidas.includes(nova.toLowerCase())) {
+        await adicionarCategoria(uid, 'cartao', nova);
+        categoriasCartao = await buscarCategorias(uid, 'cartao');
+      }
+      await atualizarCategoriaParcelamento(uid, parcelamento.id, nova);
+    }
+  }
+
+  campo.addEventListener('blur', salvar);
+  campo.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') campo.blur();
+    if (e.key === 'Escape') {
+      salvo = true;
+      campo.replaceWith(badge);
+    }
+  });
+}
 
 function formatarMoeda(valor) {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -56,7 +106,7 @@ function renderItem(p) {
       <div class="parcela-info">
         <div class="parcela-nome">
           ${escapeHTML(p.descricao)}
-          <span class="badge badge-pendente">${escapeHTML(p.categoria)}</span>
+          <span class="badge badge-pendente badge-categoria" data-categoria-id="${p.id}" title="Clique para mudar a categoria">${escapeHTML(p.categoria)}</span>
         </div>
         <div class="parcela-detalhe">
           Parcela ${p.parcelaAtual}/${p.parcelaTotal} · ${p.quitado ? 'Quitado' : `Quita em ${formatarCompetencia(p.mesQuitacaoEstimado)}`}
@@ -74,6 +124,7 @@ function renderItem(p) {
 }
 
 function renderizar(parcelamentos) {
+  parcelamentosAtuais = parcelamentos;
   const lista = document.getElementById('lista-parcelamentos');
 
   if (parcelamentos.length === 0) {
@@ -100,12 +151,19 @@ function renderizar(parcelamentos) {
   lista.innerHTML = html;
 }
 
-onAuthChange((user) => {
+onAuthChange(async (user) => {
   if (!user) {
     window.location.href = '/login.html';
     return;
   }
 
+  uid = user.uid;
+  await garantirCategoriasPadrao(uid);
+  categoriasCartao = await buscarCategorias(uid, 'cartao');
+  document.getElementById('lista-categorias-cartao').innerHTML = categoriasCartao
+    .map((c) => `<option value="${escapeHTML(c.nome)}">`)
+    .join('');
+
   if (pararDeOuvir) pararDeOuvir();
-  pararDeOuvir = ouvirParcelamentos(user.uid, renderizar);
+  pararDeOuvir = ouvirParcelamentos(uid, renderizar);
 });

@@ -70,3 +70,14 @@
 .parcela-item.quitado {
   opacity: 0.6;
 }
+
+.badge-categoria {
+  cursor: pointer;
+}
+
+.campo-categoria-inline {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  width: 140px;
+  height: auto;
+}
