@@ -1,6 +1,7 @@
-import { ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
+import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { pareceSerFaturaNubank, parseNubank } from '../parsers/nubank.js';
+import { buscarCategoriasCompras, categoriaResolvida } from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { categorizar } from '../services/categorizacaoService.js';
 import { buscarFaturaPorCompetencia, excluirFatura, salvarFatura } from '../services/faturasService.js';
@@ -13,12 +14,16 @@ import { initTheme } from '../services/themeService.js';
 initTheme();
 
 let uid = null;
-let faturaExtraida = null;
 let categoriasCartao = [];
+let overridesCompras = {};
 let resolverPronto;
 const pronto = new Promise((resolve) => {
   resolverPronto = resolve;
 });
+
+let filaArquivos = [];
+let indiceFila = 0;
+let resumoImportacao = [];
 
 const app = document.getElementById('app');
 
@@ -56,13 +61,18 @@ function formatarData(iso) {
   return `${dia}/${mes}/${ano}`;
 }
 
+function progressoFilaHTML() {
+  if (filaArquivos.length <= 1) return '';
+  return `<p class="fatura-fila-progresso">Fatura ${indiceFila + 1} de ${filaArquivos.length}</p>`;
+}
+
 function renderDropZone() {
   conteudo.innerHTML = `
     <div id="drop-zone" class="elevated-card drop-zone">
       <div class="icone">${icones.documento}</div>
-      <h3>Arraste o PDF da fatura aqui</h3>
-      <p>ou clique para escolher o arquivo (por enquanto, só faturas do Nubank)</p>
-      <input type="file" id="input-arquivo" accept="application/pdf" style="display:none;">
+      <h3>Arraste o(s) PDF(s) da fatura aqui</h3>
+      <p>ou clique para escolher — pode selecionar vários arquivos de uma vez, se quiser importar várias faturas antigas (por enquanto, só faturas do Nubank)</p>
+      <input type="file" id="input-arquivo" accept="application/pdf" multiple style="display:none;">
     </div>
   `;
 
@@ -71,7 +81,7 @@ function renderDropZone() {
 
   dropZone.onclick = () => inputArquivo.click();
   inputArquivo.onchange = () => {
-    if (inputArquivo.files[0]) processarArquivo(inputArquivo.files[0]);
+    if (inputArquivo.files.length) iniciarFila(Array.from(inputArquivo.files));
   };
 
   dropZone.addEventListener('dragover', (e) => {
@@ -82,12 +92,13 @@ function renderDropZone() {
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('arrastando');
-    if (e.dataTransfer.files[0]) processarArquivo(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length) iniciarFila(Array.from(e.dataTransfer.files));
   });
 }
 
 function renderLendo() {
   conteudo.innerHTML = `
+    ${progressoFilaHTML()}
     <div class="elevated-card drop-zone">
       <div class="icone">⏳</div>
       <h3>Lendo PDF...</h3>
@@ -97,17 +108,32 @@ function renderLendo() {
 }
 
 function renderErro(mensagem) {
+  const temProxima = indiceFila < filaArquivos.length - 1;
+  const emFila = filaArquivos.length > 1;
+
   conteudo.innerHTML = `
+    ${progressoFilaHTML()}
     <div class="elevated-card drop-zone">
       <div class="icone alerta">${icones.alerta}</div>
       <h3>Não foi possível importar</h3>
       <p>${escapeHTML(mensagem)}</p>
       <div class="fatura-acoes" style="justify-content:center;">
-        <button id="btn-tentar-de-novo" class="btn-secondary" type="button">Tentar outro arquivo</button>
+        ${emFila
+          ? `<button id="btn-pular" class="btn-secondary" type="button">${temProxima ? 'Pular e continuar' : 'Ver resumo'}</button>`
+          : `<button id="btn-tentar-de-novo" class="btn-secondary" type="button">Tentar outro arquivo</button>`
+        }
       </div>
     </div>
   `;
-  document.getElementById('btn-tentar-de-novo').onclick = renderDropZone;
+
+  if (emFila) {
+    document.getElementById('btn-pular').onclick = () => {
+      resumoImportacao.push({ nomeArquivo: filaArquivos[indiceFila].name, status: 'erro', mensagem });
+      avancarFila();
+    };
+  } else {
+    document.getElementById('btn-tentar-de-novo').onclick = renderDropZone;
+  }
 }
 
 function renderPreview(fatura) {
@@ -130,6 +156,7 @@ function renderPreview(fatura) {
     .join('');
 
   conteudo.innerHTML = `
+    ${progressoFilaHTML()}
     <div class="fatura-resumo">
       <div class="elevated-card resumo-card">
         <span class="label">Valor total</span>
@@ -151,11 +178,21 @@ function renderPreview(fatura) {
         <span class="label">Pagamento mínimo</span>
         <span class="valor">${formatarMoeda(fatura.pagamentoMinimo)}</span>
       </div>
+      ${
+        fatura.encargos && fatura.encargos.length > 0
+          ? `<div class="elevated-card resumo-card">
+              <span class="label">Encargos e juros</span>
+              <span class="valor" style="color:var(--danger);">${formatarMoeda(fatura.encargos.reduce((s, e) => s + e.valor, 0))}</span>
+            </div>`
+          : ''
+      }
     </div>
 
     <div class="elevated-card">
       <h2 style="margin-top:0;">Transações encontradas (${fatura.transacoes.length})</h2>
-      <p style="color:var(--text-sec); font-size:0.85rem; margin-top:-8px;">Confira a categoria de cada compra antes de salvar — pode digitar uma categoria nova se quiser.</p>
+      <p style="color:var(--text-sec); font-size:0.85rem; margin-top:-8px;">
+        Confira a categoria de cada compra antes de salvar — já pré-preenchi com o que você já ensinou antes, quando reconheço a compra.
+      </p>
       <datalist id="lista-categorias-cartao">
         ${opcoesCategoria.map((nome) => `<option value="${escapeHTML(nome)}">`).join('')}
       </datalist>
@@ -169,7 +206,7 @@ function renderPreview(fatura) {
       </div>
 
       <div class="fatura-acoes">
-        <button id="btn-cancelar" class="btn-secondary" type="button">Cancelar</button>
+        <button id="btn-cancelar" class="btn-secondary" type="button">${filaArquivos.length > 1 ? 'Pular esta' : 'Cancelar'}</button>
         <button id="btn-confirmar" class="btn-primary" type="button">Confirmar e salvar</button>
       </div>
       <div id="fatura-mensagem" class="fatura-mensagem"></div>
@@ -183,8 +220,12 @@ function renderPreview(fatura) {
   });
 
   document.getElementById('btn-cancelar').onclick = () => {
-    faturaExtraida = null;
-    renderDropZone();
+    if (filaArquivos.length > 1) {
+      resumoImportacao.push({ nomeArquivo: filaArquivos[indiceFila].name, status: 'pulada', mensagem: 'Pulada' });
+      avancarFila();
+    } else {
+      renderDropZone();
+    }
   };
 
   document.getElementById('btn-confirmar').onclick = async () => {
@@ -209,13 +250,20 @@ function renderPreview(fatura) {
       for (const nome of novasCategorias) {
         await adicionarCategoria(uid, 'cartao', nome);
       }
+      categoriasCartao = await buscarCategorias(uid, 'cartao');
 
       if (existente) await excluirFatura(uid, existente.id);
       await salvarFatura(uid, fatura);
       await mesclarParcelas(uid, fatura);
-      document.getElementById('fatura-mensagem').innerHTML =
-        '<p style="color:var(--success); font-weight:600;">Fatura salva e parcelamentos atualizados.</p>';
-      botao.textContent = 'Salvo ✓';
+
+      if (filaArquivos.length > 1) {
+        resumoImportacao.push({ nomeArquivo: filaArquivos[indiceFila].name, status: 'salva', mensagem: `Salva — ${formatarData(fatura.vencimento)}` });
+        avancarFila();
+      } else {
+        document.getElementById('fatura-mensagem').innerHTML =
+          '<p style="color:var(--success); font-weight:600;">Fatura salva e parcelamentos atualizados.</p>';
+        botao.textContent = 'Salvo ✓';
+      }
     } catch (err) {
       console.error(err);
       document.getElementById('fatura-mensagem').innerHTML =
@@ -224,6 +272,56 @@ function renderPreview(fatura) {
       botao.textContent = 'Confirmar e salvar';
     }
   };
+}
+
+function renderResumoFila() {
+  const salvas = resumoImportacao.filter((r) => r.status === 'salva').length;
+  const puladas = resumoImportacao.filter((r) => r.status === 'pulada').length;
+  const erros = resumoImportacao.filter((r) => r.status === 'erro').length;
+
+  const partes = [`${salvas} fatura(s) salva(s)`];
+  if (puladas) partes.push(`${puladas} pulada(s)`);
+  if (erros) partes.push(`${erros} com erro`);
+
+  conteudo.innerHTML = `
+    <div class="elevated-card drop-zone">
+      <div class="icone">${icones.documento}</div>
+      <h3>Importação concluída</h3>
+      <p>${partes.join(', ')}.</p>
+      <div class="fatura-resumo-lista">
+        ${resumoImportacao
+          .map(
+            (r) => `
+          <div class="fatura-resumo-item">
+            <span>${escapeHTML(r.nomeArquivo)}</span>
+            <span class="fatura-resumo-status fatura-resumo-status-${r.status}">${escapeHTML(r.mensagem)}</span>
+          </div>
+        `
+          )
+          .join('')}
+      </div>
+      <div class="fatura-acoes" style="justify-content:center;">
+        <button id="btn-importar-mais" class="btn-secondary" type="button">Importar mais faturas</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('btn-importar-mais').onclick = renderDropZone;
+}
+
+function iniciarFila(arquivos) {
+  filaArquivos = arquivos;
+  indiceFila = 0;
+  resumoImportacao = [];
+  processarArquivo(filaArquivos[0]);
+}
+
+function avancarFila() {
+  indiceFila += 1;
+  if (indiceFila >= filaArquivos.length) {
+    renderResumoFila();
+  } else {
+    processarArquivo(filaArquivos[indiceFila]);
+  }
 }
 
 async function processarArquivo(arquivo) {
@@ -248,7 +346,12 @@ async function processarArquivo(arquivo) {
       return;
     }
 
-    faturaExtraida = fatura;
+    // Se já sabemos a categoria dessa compra (porque você já corrigiu antes),
+    // usa ela em vez do adivinhador por palavra-chave.
+    fatura.transacoes.forEach((t) => {
+      t.categoria = categoriaResolvida(overridesCompras, t.descricao, t.categoria);
+    });
+
     renderPreview(fatura);
   } catch (err) {
     console.error(err);
@@ -264,7 +367,9 @@ onAuthChange(async (user) => {
     return;
   }
   uid = user.uid;
+  atualizarPerfilSidebar(user.displayName);
   await garantirCategoriasPadrao(uid);
   categoriasCartao = await buscarCategorias(uid, 'cartao');
+  overridesCompras = await buscarCategoriasCompras(uid);
   resolverPronto();
 });

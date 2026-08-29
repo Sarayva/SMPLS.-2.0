@@ -51,6 +51,9 @@ export function calcularGastosPorMeses(contas, faturas, meses, overridesCompras 
       for (const transacao of fatura.transacoes || []) {
         somar(categoriaResolvida(overridesCompras, transacao.descricao, transacao.categoria), transacao.valor);
       }
+      for (const encargo of fatura.encargos || []) {
+        somar('Encargos e juros', encargo.valor);
+      }
     }
 
     porMes[mes] = { total, categorias };
@@ -96,10 +99,35 @@ export function itensDasCategorias(contas, faturas, categorias, meses, overrides
           mes,
         });
       });
+
+      if (categorias.includes('Encargos e juros')) {
+        (fatura.encargos || []).forEach((encargo) => {
+          if (!encargo.valor) return;
+          itens.push({
+            tipo: 'encargo',
+            origem: 'Cartão',
+            nome: encargo.descricao,
+            categoria: 'Encargos e juros',
+            valor: encargo.valor,
+            mes,
+          });
+        });
+      }
     }
   }
 
   return itens.sort((a, b) => b.valor - a.valor);
+}
+
+export function calcularMediaGastoCartao(faturas) {
+  const totaisPorFatura = faturas
+    .filter((f) => f.competencia && Array.isArray(f.transacoes))
+    .map((f) => f.transacoes.filter((t) => !t.parcelaTotal).reduce((s, t) => s + t.valor, 0));
+
+  if (totaisPorFatura.length === 0) return { media: 0, quantidadeFaturas: 0 };
+
+  const media = totaisPorFatura.reduce((s, v) => s + v, 0) / totaisPorFatura.length;
+  return { media, quantidadeFaturas: totaisPorFatura.length };
 }
 
 export function somarCategorias(...mapas) {

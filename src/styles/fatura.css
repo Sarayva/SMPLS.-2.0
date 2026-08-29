@@ -110,3 +110,97 @@
 .fatura-mensagem {
   margin-top: 16px;
 }
+
+.fatura-fila-progresso {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--primary-light);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 10px;
+}
+
+.fatura-resumo-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+  text-align: left;
+}
+
+.fatura-resumo-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-card-sec);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.fatura-resumo-status-salva {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.fatura-resumo-status-pulada {
+  color: var(--text-sec);
+}
+
+.fatura-resumo-status-erro {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.conta-import-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.conta-import-item:last-child {
+  border-bottom: none;
+}
+
+.conta-import-item input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+
+.conta-import-campos {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 2fr 1.3fr 1fr 0.6fr;
+  gap: 8px;
+}
+
+.conta-import-campos input {
+  font-size: 0.85rem;
+  padding: 7px 9px;
+}
+
+.conta-import-aviso {
+  color: var(--attention);
+  flex-shrink: 0;
+  display: flex;
+}
+
+.conta-import-aviso svg {
+  width: 16px;
+  height: 16px;
+}
+
+.conta-import-aviso-vazio {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 760px) {
+  .conta-import-campos {
+    grid-template-columns: 1fr 1fr;
+  }
+}

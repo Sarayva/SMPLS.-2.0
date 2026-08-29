@@ -1,5 +1,5 @@
 import { abrirModalDetalheCategoria } from '../components/DetalheCategoriaModal.js';
-import { ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
+import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { anosComDados, calcularGastosPorMeses, itensDasCategorias, mesesDoAno, somarCategorias } from '../services/analisesService.js';
 import {
@@ -368,9 +368,15 @@ function renderizar() {
   const categoriasAno = somarCategorias(...mesesAno.map((m) => porMes[m]?.categorias ?? {}));
   const categoriasMes = porMes[mesSelecionado]?.categorias ?? {};
 
-  const limiteLiberado = parcelamentos
-    .filter((p) => p.mesQuitacaoEstimado === mesSelecionado)
-    .reduce((s, p) => s + p.valorParcela, 0);
+  // Não é "só parcela que termina este mês" — toda parcela paga neste mês
+  // libera o próprio valor dela no limite, não importa se é a 1ª ou a última.
+  const limiteLiberado = faturas
+    .filter((f) => f.competencia === mesSelecionado)
+    .flatMap((f) => f.transacoes || [])
+    .filter((t) => t.parcelaTotal)
+    .reduce((s, t) => s + t.valor, 0);
+
+  const qtdParcelasAtivas = parcelamentos.filter((p) => !p.quitado).length;
 
   const despesasSerieAno = mesesAno.map((m) => porMes[m]?.total ?? 0);
   const rendaSerieAno = mesesAno.map(() => rendaTotal);
@@ -394,18 +400,11 @@ function renderizar() {
       <div class="elevated-card painel-card">
         <span class="painel-card-titulo">Limite liberado — ${NOMES_MESES[Number(mesSelecionado.slice(5, 7)) - 1]}</span>
         <span class="painel-card-valor" style="color:var(--success);">${formatarMoeda(limiteLiberado)}</span>
-        <span class="painel-card-nota">Soma das parcelas que terminam neste mês</span>
+        <span class="painel-card-nota">Soma de todas as parcelas pagas neste mês</span>
       </div>
     </div>
 
-    <div class="painel-grid painel-grid-1">
-      <div class="elevated-card painel-card">
-        <span class="painel-card-titulo">Contas parceladas</span>
-        ${renderParcelamentosAtivos()}
-      </div>
-    </div>
-
-    <div class="painel-grid painel-grid-2">
+    <div class="painel-grid painel-grid-3">
       <div class="elevated-card painel-card">
         <span class="painel-card-titulo">Despesas no mês</span>
         ${renderDonut(categoriasMes, 'mes', [mesSelecionado])}
@@ -413,6 +412,13 @@ function renderizar() {
       <div class="elevated-card painel-card">
         <span class="painel-card-titulo">Despesas no ano</span>
         ${renderDonut(categoriasAno, 'ano', mesesAno)}
+      </div>
+      <div class="elevated-card painel-card">
+        <div class="painel-card-cabecalho">
+          <span class="painel-card-titulo">Contas parceladas</span>
+          <span class="painel-card-contador">${qtdParcelasAtivas} ${qtdParcelasAtivas === 1 ? 'parcela' : 'parcelas'}</span>
+        </div>
+        ${renderParcelamentosAtivos()}
       </div>
     </div>
 
@@ -486,6 +492,7 @@ onAuthChange(async (user) => {
   uid = user.uid;
   const primeiroNome = (user.displayName || '').split(' ')[0];
   document.getElementById('saudacao').textContent = primeiroNome ? `Olá, ${primeiroNome} 👋` : 'Olá 👋';
+  atualizarPerfilSidebar(user.displayName);
 
   await garantirCategoriasPadrao(uid);
   categoriasContas = await buscarCategorias(uid, 'contas');

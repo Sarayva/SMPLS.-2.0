@@ -36,12 +36,18 @@ export function abrirModalDetalheCategoria(categoriaInicial, itensIniciais, tota
   document.getElementById('btn-fechar-modal').onclick = fecharModal;
 
   function renderItem(item, i) {
+    // Encargos (juros, multa, IOF...) não têm descrição de compra reaproveitável
+    // pra virar uma regra de categorização — a categoria fica fixa.
+    const categoriaHTML =
+      item.tipo === 'encargo'
+        ? `<span class="detalhe-categoria-fixa">${escapeHTML(item.categoria)}</span>`
+        : `<button class="detalhe-categoria-editar" data-idx="${i}" type="button">${escapeHTML(item.categoria)}</button>`;
     return `
       <div class="detalhe-categoria-item">
         <div>
           <span class="detalhe-categoria-nome">${escapeHTML(item.nome)}</span>
           <span class="detalhe-categoria-origem">${escapeHTML(item.origem)} · ${escapeHTML(item.mes)} ·
-            <button class="detalhe-categoria-editar" data-idx="${i}" type="button">${escapeHTML(item.categoria)}</button>
+            ${categoriaHTML}
           </span>
         </div>
         <span class="detalhe-categoria-valor">${formatarMoeda(item.valor)}</span>

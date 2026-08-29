@@ -4,8 +4,10 @@ import { getTheme, initTheme, toggleTheme } from '../services/themeService.js';
 
 initTheme();
 
+let cadastrando = false;
+
 onAuthChange((user) => {
-  if (user) window.location.href = '/index.html';
+  if (user && !cadastrando) window.location.href = '/index.html';
 });
 
 const MENSAGENS_ERRO = {
@@ -155,9 +157,12 @@ formCadastro.addEventListener('submit', async (e) => {
 
   botao.disabled = true;
   botao.textContent = 'Criando conta...';
+  cadastrando = true;
   try {
     await signUp(nome, email, senha);
+    window.location.href = '/index.html';
   } catch (err) {
+    cadastrando = false;
     mostrarErro(mensagemDeErro(err));
     botao.disabled = false;
     botao.textContent = 'Criar conta';

@@ -157,6 +157,36 @@
   white-space: nowrap;
 }
 
+.conta-valor-editavel {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+}
+
+.conta-valor-editavel:hover {
+  background: var(--bg-card-sec);
+  color: var(--primary-light);
+}
+
+.campo-valor-inline {
+  width: 100px;
+  font-weight: 700;
+  padding: 5px 8px;
+  text-align: right;
+}
+
+.badge-categoria-conta {
+  cursor: pointer;
+  background: var(--bg-card-sec);
+  color: var(--text-sec);
+  border: none;
+}
+
+.badge-categoria-conta:hover {
+  color: var(--text-main);
+}
+
 .badge {
   font-size: 0.72rem;
   font-weight: 600;

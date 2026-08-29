@@ -85,3 +85,68 @@
 .badge-categoria {
   cursor: pointer;
 }
+
+.resumo-limite-card {
+  margin-bottom: 18px;
+}
+
+.resumo-limite-linha {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 12px;
+}
+
+.resumo-limite-linha > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resumo-limite-separador {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border-color);
+}
+
+.resumo-limite-label {
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+.resumo-limite-valor {
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.resumo-limite-barra-trilho {
+  height: 8px;
+  background: var(--bg-card-sec);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.resumo-limite-barra {
+  height: 100%;
+  background: var(--attention);
+  border-radius: 999px;
+}
+
+.resumo-limite-nota {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+  margin-top: 8px;
+}
+
+@media (max-width: 560px) {
+  .resumo-limite-linha {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .resumo-limite-separador {
+    display: none;
+  }
+}

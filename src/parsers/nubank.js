@@ -41,7 +41,11 @@ export function parseNubank(linhas, categorizar) {
     return paraDataISO(dia, mesAbrev, String(ano));
   }
 
-  const matchTotal = textoCompleto.match(/Total a pagar\s+R\$\s*([\d.]*,\d{2})/i);
+  // Algumas faturas trazem um bloco promocional de simulação de parcelamento
+  // ("Parcelar em X meses... Total a pagar... Juros totais...") ANTES do
+  // resumo real — por isso não basta pegar a primeira ocorrência de "Total a
+  // pagar". O total de verdade é sempre seguido por "Pagamento mínimo".
+  const matchTotal = textoCompleto.match(/Total a pagar\D*R\$\s*([\d.]*,\d{2})\D*Pagamento m[íi]nimo/i);
   const valorTotal = matchTotal ? paraNumero(matchTotal[1]) : null;
 
   let matchLimiteTotal = textoCompleto.match(/Limite total do cart[ãa]o de cr[ée]dito:\s*R\$\s*([\d.]*,\d{2})/i);
@@ -55,6 +59,7 @@ export function parseNubank(linhas, categorizar) {
   const pagamentoMinimo = matchMinimo ? paraNumero(matchMinimo[1]) : null;
 
   const transacoes = [];
+  const encargos = [];
   for (const linha of linhas) {
     if (!linha) continue;
     const match = linha.match(REGEX_LINHA_TRANSACAO);
@@ -71,7 +76,13 @@ export function parseNubank(linhas, categorizar) {
     const ehEncargo = ['rotativo', 'juros', 'multa', 'iof', 'encargos', 'saldo restante', 'encerramento de d']
       .some((termo) => descricaoLower.includes(termo));
 
-    if (ehPagamento || ehEncargo || !descricao) continue;
+    if (!descricao) continue;
+    if (ehPagamento) continue;
+
+    if (ehEncargo) {
+      if (valor) encargos.push({ data: dataTransacaoISO(diaMes, mesAbrev), descricao, valor });
+      continue;
+    }
 
     transacoes.push({
       data: dataTransacaoISO(diaMes, mesAbrev),
@@ -92,5 +103,6 @@ export function parseNubank(linhas, categorizar) {
     limiteUtilizado,
     pagamentoMinimo,
     transacoes,
+    encargos,
   };
 }

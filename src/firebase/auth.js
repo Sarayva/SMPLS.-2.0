@@ -27,3 +27,7 @@ export async function signOut() {
 export function onAuthChange(callback) {
   return onAuthStateChanged(auth, callback);
 }
+
+export async function atualizarPerfil(dados) {
+  await updateProfile(auth.currentUser, dados);
+}

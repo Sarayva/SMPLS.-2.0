@@ -1,5 +1,5 @@
 import { abrirModalRenda } from '../components/RendaModal.js';
-import { ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
+import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { ouvirRendas } from '../services/rendaService.js';
 import { escapeHTML } from '../services/securityService.js';
@@ -113,6 +113,7 @@ onAuthChange((user) => {
   }
 
   uid = user.uid;
+  atualizarPerfilSidebar(user.displayName);
   document.getElementById('btn-nova-renda').disabled = false;
 
   if (pararDeOuvir) pararDeOuvir();

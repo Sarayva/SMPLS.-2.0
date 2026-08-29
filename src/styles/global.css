@@ -133,6 +133,17 @@ button {
   background: var(--bg-card-sec);
 }
 
+.avatar-circulo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 800;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
 .campo-categoria-inline {
   font-size: 0.72rem;
   padding: 3px 8px;

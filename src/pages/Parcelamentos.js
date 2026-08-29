@@ -1,7 +1,8 @@
-import { ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
+import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { categoriaResolvida, definirCategoriaCompra, ouvirCategoriasCompras } from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
+import { ouvirFaturas } from '../services/faturasService.js';
 import { encontrarDuplicatas, mesclarDuplicata, ouvirParcelamentos } from '../services/parcelamentosService.js';
 import { escapeHTML } from '../services/securityService.js';
 import { initTheme } from '../services/themeService.js';
@@ -12,6 +13,7 @@ let uid = null;
 let pararDeOuvir = null;
 let categoriasCartao = [];
 let parcelamentosAtuais = [];
+let faturasAtuais = [];
 let overridesCompras = {};
 
 const app = document.getElementById('app');
@@ -30,6 +32,8 @@ app.innerHTML = `
     </div>
 
     <datalist id="lista-categorias-cartao"></datalist>
+
+    <div id="resumo-limite-cartao"></div>
 
     <div id="aviso-duplicatas"></div>
 
@@ -134,6 +138,46 @@ function renderItem(p) {
   `;
 }
 
+function renderResumoLimite() {
+  const resumoEl = document.getElementById('resumo-limite-cartao');
+
+  // Pega a fatura mais recente só pra saber o limite total do cartão
+  // (esse número praticamente não muda, então a última importada já serve).
+  const ultimaFatura = [...faturasAtuais].sort((a, b) => (b.competencia || '').localeCompare(a.competencia || ''))[0];
+  const limiteTotal = ultimaFatura?.limiteTotal;
+
+  const comprometido = parcelamentosAtuais
+    .filter((p) => !p.quitado)
+    .reduce((s, p) => s + Math.round((p.parcelaTotal - p.parcelaAtual) * p.valorParcela * 100) / 100, 0);
+
+  if (!limiteTotal) {
+    resumoEl.innerHTML = '';
+    return;
+  }
+
+  const percentual = Math.min(100, Math.round((comprometido / limiteTotal) * 100));
+
+  resumoEl.innerHTML = `
+    <div class="elevated-card resumo-limite-card">
+      <div class="resumo-limite-linha">
+        <div>
+          <span class="resumo-limite-label">Limite do cartão</span>
+          <span class="resumo-limite-valor">${formatarMoeda(limiteTotal)}</span>
+        </div>
+        <div class="resumo-limite-separador"></div>
+        <div>
+          <span class="resumo-limite-label">Comprometido com parcelamentos</span>
+          <span class="resumo-limite-valor" style="color:var(--attention);">${formatarMoeda(comprometido)}</span>
+        </div>
+      </div>
+      <div class="resumo-limite-barra-trilho">
+        <div class="resumo-limite-barra" style="width:${percentual}%;"></div>
+      </div>
+      <span class="resumo-limite-nota">${percentual}% do limite está preso em parcelas ainda não pagas</span>
+    </div>
+  `;
+}
+
 function renderAvisoDuplicatas(parcelamentos) {
   const avisoEl = document.getElementById('aviso-duplicatas');
   const duplicatas = encontrarDuplicatas(parcelamentos);
@@ -165,6 +209,7 @@ function renderAvisoDuplicatas(parcelamentos) {
 
 function renderizar(parcelamentos) {
   parcelamentosAtuais = parcelamentos;
+  renderResumoLimite();
   renderAvisoDuplicatas(parcelamentos);
   const lista = document.getElementById('lista-parcelamentos');
 
@@ -199,6 +244,7 @@ onAuthChange(async (user) => {
   }
 
   uid = user.uid;
+  atualizarPerfilSidebar(user.displayName);
   await garantirCategoriasPadrao(uid);
   categoriasCartao = await buscarCategorias(uid, 'cartao');
   document.getElementById('lista-categorias-cartao').innerHTML = categoriasCartao
@@ -207,6 +253,11 @@ onAuthChange(async (user) => {
 
   if (pararDeOuvir) pararDeOuvir();
   pararDeOuvir = ouvirParcelamentos(uid, renderizar);
+
+  ouvirFaturas(uid, (novasFaturas) => {
+    faturasAtuais = novasFaturas;
+    renderResumoLimite();
+  });
 
   ouvirCategoriasCompras(uid, (novosOverrides) => {
     overridesCompras = novosOverrides;
