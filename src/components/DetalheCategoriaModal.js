@@ -123,8 +123,11 @@ export function abrirModalDetalheCategoria(categoriaInicial, itensIniciais, tota
         }
         // Categoria vale por descrição da compra, não só por este lançamento
         // — tira da lista todos os outros que são a mesma compra também.
+        const tiposPorDescricao = ['transacao', 'lancamento'];
         const mesmaCompra = (i) =>
-          item.tipo === 'transacao' && i.tipo === 'transacao' && i.nome.trim().toLowerCase() === item.nome.trim().toLowerCase();
+          tiposPorDescricao.includes(item.tipo) &&
+          tiposPorDescricao.includes(i.tipo) &&
+          i.nome.trim().toLowerCase() === item.nome.trim().toLowerCase();
         itens = itens.filter((i) => i !== item && !mesmaCompra(i));
         total = itens.reduce((soma, i) => soma + i.valor, 0);
         renderLista();

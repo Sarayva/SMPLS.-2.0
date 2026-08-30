@@ -12,6 +12,7 @@ import {
 import { chaveCompra, definirCategoriaCompra, ouvirCategoriasCompras } from '../services/categoriasComprasService.js';
 import { mesAtualISO, ouvirContas, salvarConta } from '../services/contasService.js';
 import { encontrarFaturasDuplicadas, mesclarFaturasDuplicadas, ouvirFaturas } from '../services/faturasService.js';
+import { ouvirExtratos } from '../services/extratosService.js';
 import { anguloDoPonteiro, fatiaNoAngulo, fatiasCategorias, gradienteDonut, pontosLinha } from '../services/graficosService.js';
 import { ouvirParcelamentos } from '../services/parcelamentosService.js';
 import { ouvirRendas } from '../services/rendaService.js';
@@ -28,6 +29,7 @@ const NOMES_MESES = [
 let uid = null;
 let contas = [];
 let faturas = [];
+let extratos = [];
 let parcelamentos = [];
 let rendas = [];
 let categoriasContas = [];
@@ -183,7 +185,7 @@ async function salvarCategoriaItem(item, novaCategoria) {
 
 function abrirDetalheDaFatia(fatia, meses) {
   if (!fatia) return;
-  const itens = itensDasCategorias(contas, faturas, fatia.categoriasIncluidas, meses, overridesCompras);
+  const itens = itensDasCategorias(contas, faturas, extratos, fatia.categoriasIncluidas, meses, overridesCompras);
   const categoriasConhecidas = [...new Set([...categoriasContas.map((c) => c.nome), ...categoriasCartao.map((c) => c.nome)])];
   abrirModalDetalheCategoria(fatia.categoria, itens, fatia.valor, {
     categoriasConhecidas,
@@ -355,7 +357,7 @@ function renderizar() {
   const corpo = document.getElementById('painel-corpo');
   const anoSelecionado = Number(mesSelecionado.slice(0, 4));
   const mesesAno = mesesDoAno(anoSelecionado);
-  const { porMes } = calcularGastosPorMeses(contas, faturas, mesesAno, overridesCompras);
+  const { porMes } = calcularGastosPorMeses(contas, faturas, extratos, mesesAno, overridesCompras);
 
   const rendaTotal = rendas.filter((r) => r.ativa !== false).reduce((s, r) => s + r.valor, 0);
   const despesasDoMes = porMes[mesSelecionado]?.total ?? 0;
@@ -508,6 +510,10 @@ onAuthChange(async (user) => {
   ouvirFaturas(uid, (novasFaturas) => {
     faturas = novasFaturas;
     renderFiltros();
+    renderizar();
+  });
+  ouvirExtratos(uid, (novosExtratos) => {
+    extratos = novosExtratos;
     renderizar();
   });
   ouvirParcelamentos(uid, (novosParcelamentos) => {

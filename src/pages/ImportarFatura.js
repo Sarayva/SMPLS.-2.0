@@ -1,21 +1,30 @@
 import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { pareceSerFaturaNubank, parseNubank } from '../parsers/nubank.js';
-import { buscarCategoriasCompras, categoriaResolvida } from '../services/categoriasComprasService.js';
+import { pareceSerFaturaCsv, parseFaturaCsv } from '../parsers/faturaCsv.js';
+import { pareceSerExtratoCsv, parseExtratoCsv } from '../parsers/extratoCsv.js';
+import { buscarCategoriasCompras, categoriaResolvida, definirCategoriaCompra } from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { categorizar } from '../services/categorizacaoService.js';
+import { buscarContas, marcarPago, mesAtualISO, statusConta } from '../services/contasService.js';
+import { buscarExtratoPorPeriodo, excluirExtrato, salvarExtrato } from '../services/extratosService.js';
 import { buscarFaturaPorCompetencia, excluirFatura, salvarFatura } from '../services/faturasService.js';
 import { mesclarParcelas } from '../services/parcelamentosService.js';
 import { extrairLinhas } from '../services/pdfService.js';
+import { buscarTitular, definirTitular, listarNomesTitulares } from '../services/titularesService.js';
 import { icones } from '../services/icones.js';
 import { escapeHTML } from '../services/securityService.js';
 import { initTheme } from '../services/themeService.js';
+import { buscarVinculos, contaVinculada, definirVinculo } from '../services/vinculosContasService.js';
 
 initTheme();
 
 let uid = null;
 let categoriasCartao = [];
 let overridesCompras = {};
+let contasFixas = [];
+let vinculosContas = {};
+let nomesTitulares = [];
 let resolverPronto;
 const pronto = new Promise((resolve) => {
   resolverPronto = resolve;
@@ -24,6 +33,21 @@ const pronto = new Promise((resolve) => {
 let filaArquivos = [];
 let indiceFila = 0;
 let resumoImportacao = [];
+
+function normalizarTexto(texto) {
+  return (texto || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function pareceSerAMesmaPessoa(nomeA, nomeB) {
+  const a = normalizarTexto(nomeA);
+  const b = normalizarTexto(nomeB);
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
+}
 
 const app = document.getElementById('app');
 
@@ -35,8 +59,8 @@ app.innerHTML = `
     <div class="page">
     <div class="topbar">
       <div>
-        <h1>Importar fatura</h1>
-        <p>Suba o PDF da fatura do cartão — os dados são lidos aqui no navegador.</p>
+        <h1>Importar fatura ou extrato</h1>
+        <p>Suba a fatura do cartão (PDF ou CSV) ou o extrato da conta (CSV) — os dados são lidos aqui no navegador.</p>
       </div>
     </div>
 
@@ -70,9 +94,9 @@ function renderDropZone() {
   conteudo.innerHTML = `
     <div id="drop-zone" class="elevated-card drop-zone">
       <div class="icone">${icones.documento}</div>
-      <h3>Arraste o(s) PDF(s) da fatura aqui</h3>
-      <p>ou clique para escolher — pode selecionar vários arquivos de uma vez, se quiser importar várias faturas antigas (por enquanto, só faturas do Nubank)</p>
-      <input type="file" id="input-arquivo" accept="application/pdf" multiple style="display:none;">
+      <h3>Arraste o(s) arquivo(s) aqui</h3>
+      <p>PDF ou CSV da fatura do cartão, ou CSV do extrato da conta — reconheço sozinho o tipo. Pode soltar vários de uma vez (só Nubank, por enquanto)</p>
+      <input type="file" id="input-arquivo" accept="application/pdf,.csv,text/csv" multiple style="display:none;">
     </div>
   `;
 
@@ -101,8 +125,8 @@ function renderLendo() {
     ${progressoFilaHTML()}
     <div class="elevated-card drop-zone">
       <div class="icone">⏳</div>
-      <h3>Lendo PDF...</h3>
-      <p>Extraindo os dados da fatura.</p>
+      <h3>Lendo arquivo...</h3>
+      <p>Extraindo os dados.</p>
     </div>
   `;
 }
@@ -325,38 +349,339 @@ function avancarFila() {
 }
 
 async function processarArquivo(arquivo) {
-  if (arquivo.type !== 'application/pdf') {
-    renderErro('O arquivo precisa ser um PDF.');
+  const nomeLower = arquivo.name.toLowerCase();
+  const ehCsv = nomeLower.endsWith('.csv') || arquivo.type === 'text/csv';
+  const ehPdf = nomeLower.endsWith('.pdf') || arquivo.type === 'application/pdf';
+
+  if (!ehCsv && !ehPdf) {
+    renderErro('O arquivo precisa ser um PDF ou um CSV.');
     return;
   }
 
   renderLendo();
 
   try {
-    const [linhas] = await Promise.all([extrairLinhas(arquivo), pronto]);
-
-    if (!pareceSerFaturaNubank(linhas)) {
-      renderErro('Esse PDF não parece ser uma fatura do Nubank. Por enquanto só esse banco é suportado.');
-      return;
+    if (ehCsv) {
+      await processarCsv(arquivo);
+    } else {
+      await processarPdf(arquivo);
     }
+  } catch (err) {
+    console.error(err);
+    renderErro('Houve um erro lendo esse arquivo. Tente novamente.');
+  }
+}
 
+async function processarPdf(arquivo) {
+  const [linhas] = await Promise.all([extrairLinhas(arquivo), pronto]);
+
+  if (pareceSerFaturaNubank(linhas)) {
     const fatura = parseNubank(linhas, categorizar);
     if (!fatura.valorTotal || fatura.transacoes.length === 0) {
       renderErro('Não consegui extrair os dados dessa fatura. O formato pode ter mudado.');
       return;
     }
-
     // Se já sabemos a categoria dessa compra (porque você já corrigiu antes),
     // usa ela em vez do adivinhador por palavra-chave.
     fatura.transacoes.forEach((t) => {
       t.categoria = categoriaResolvida(overridesCompras, t.descricao, t.categoria);
     });
-
     renderPreview(fatura);
-  } catch (err) {
-    console.error(err);
-    renderErro('Houve um erro lendo esse PDF. Tente novamente.');
+    return;
   }
+
+  const textoCompleto = linhas.join(' ').toLowerCase();
+  if (textoCompleto.includes('movimentações') || textoCompleto.includes('saldo inicial')) {
+    renderErro('Esse PDF parece ser um extrato de conta — por enquanto só aceito extrato em CSV. No app do Nubank, exporte o extrato como CSV em vez de PDF.');
+    return;
+  }
+
+  renderErro('Esse PDF não parece ser uma fatura do Nubank. Por enquanto só esse banco é suportado.');
+}
+
+async function processarCsv(arquivo) {
+  await pronto;
+  const texto = await arquivo.text();
+
+  if (pareceSerFaturaCsv(texto)) {
+    const fatura = parseFaturaCsv(texto, arquivo.name, categorizar);
+    if (!fatura.competencia || fatura.transacoes.length === 0) {
+      renderErro('Não consegui extrair os dados dessa fatura em CSV. Confira se o nome do arquivo é o padrão do Nubank (ex: Nubank_2026-09-13.csv).');
+      return;
+    }
+    fatura.transacoes.forEach((t) => {
+      t.categoria = categoriaResolvida(overridesCompras, t.descricao, t.categoria);
+    });
+    renderPreview(fatura);
+    return;
+  }
+
+  if (pareceSerExtratoCsv(texto)) {
+    const extrato = parseExtratoCsv(texto, arquivo.name);
+    if (extrato.lancamentos.length === 0) {
+      renderErro('Não consegui extrair os lançamentos desse extrato.');
+      return;
+    }
+    if (extrato.numeroConta) {
+      extrato.titular = await buscarTitular(uid, extrato.numeroConta);
+    }
+    anotarLancamentos(extrato);
+    renderPreviewExtrato(extrato);
+    return;
+  }
+
+  renderErro('Não reconheci esse CSV — confira se é um extrato ou uma fatura exportados do Nubank.');
+}
+
+// Marca cada lançamento com o que a tela de preview precisa saber: se é uma
+// transferência entre as próprias contas da família (não é gasto de
+// verdade), e — pra quem sobrou — se bate com alguma conta fixa ainda não
+// paga nesse mês (por vínculo já ensinado antes, ou por ter o valor exato).
+function anotarLancamentos(extrato) {
+  const TIPOS_TRANSFERENCIA = ['pix_enviado', 'pix_recebido', 'transferencia_enviada', 'transferencia_recebida', 'reembolso'];
+
+  extrato.lancamentos.forEach((l) => {
+    l.internoFamilia = TIPOS_TRANSFERENCIA.includes(l.tipo)
+      ? nomesTitulares.some((nome) => pareceSerAMesmaPessoa(nome, l.contraparte))
+      : false;
+
+    const ehAcaoNecessaria = l.direcao === 'saida' && !l.interno && !l.internoFamilia && l.tipo !== 'pagamento_fatura';
+    if (!ehAcaoNecessaria) {
+      l.contaFixaSugerida = null;
+      l.categoria = null;
+      return;
+    }
+
+    const mes = l.data ? l.data.slice(0, 7) : mesAtualISO();
+    const contasNaoPagas = contasFixas.filter((c) => c.ativa !== false && statusConta(c, mes) !== 'pago');
+    const vinculado = contaVinculada(vinculosContas, l.contraparte);
+
+    if (vinculado && contasNaoPagas.some((c) => c.id === vinculado)) {
+      l.contaFixaSugerida = vinculado;
+    } else {
+      const porValor = contasNaoPagas.find((c) => c.valor != null && Math.abs(c.valor - l.valor) < 0.01);
+      l.contaFixaSugerida = porValor ? porValor.id : null;
+    }
+    l.categoria = categoriaResolvida(overridesCompras, l.contraparte, categorizar(l.contraparte));
+  });
+}
+
+function renderLinhaLancamento(l, indice) {
+  const dataFmt = formatarData(l.data);
+
+  if (l.interno) {
+    return `<tr class="extrato-linha-interna">
+      <td>${dataFmt}</td><td colspan="2">${escapeHTML(l.descricao)}</td>
+      <td style="text-align:right;">${formatarMoeda(l.valor)}</td>
+    </tr>`;
+  }
+  if (l.internoFamilia) {
+    return `<tr class="extrato-linha-interna">
+      <td>${dataFmt}</td><td colspan="2">${escapeHTML(l.contraparte)} <span class="extrato-badge">transferência com a família</span></td>
+      <td style="text-align:right;">${formatarMoeda(l.valor)}</td>
+    </tr>`;
+  }
+  if (l.tipo === 'pagamento_fatura') {
+    return `<tr class="extrato-linha-interna">
+      <td>${dataFmt}</td><td colspan="2">${escapeHTML(l.descricao)} <span class="extrato-badge">fatura do cartão — já contabilizado</span></td>
+      <td style="text-align:right;">${formatarMoeda(l.valor)}</td>
+    </tr>`;
+  }
+  if (l.direcao === 'entrada') {
+    return `<tr class="extrato-linha-interna">
+      <td>${dataFmt}</td><td colspan="2">${escapeHTML(l.contraparte)} <span class="extrato-badge">entrada</span></td>
+      <td style="text-align:right; color:var(--success);">+${formatarMoeda(l.valor)}</td>
+    </tr>`;
+  }
+
+  const mes = l.data ? l.data.slice(0, 7) : mesAtualISO();
+  const contasNaoPagas = contasFixas.filter((c) => c.ativa !== false && statusConta(c, mes) !== 'pago');
+
+  return `<tr>
+    <td>${dataFmt}</td>
+    <td>${escapeHTML(l.contraparte)}</td>
+    <td>
+      <select data-indice-lancamento="${indice}" class="extrato-select-conta">
+        <option value="">— Não é conta fixa —</option>
+        ${contasNaoPagas
+          .map((c) => `<option value="${c.id}" ${l.contaFixaSugerida === c.id ? 'selected' : ''}>${escapeHTML(c.nome)}</option>`)
+          .join('')}
+      </select>
+      <input
+        type="text"
+        list="lista-categorias-cartao"
+        data-indice-lancamento-categoria="${indice}"
+        value="${escapeHTML(l.categoria || '')}"
+        placeholder="categoria"
+        class="extrato-input-categoria"
+        style="${l.contaFixaSugerida ? 'display:none;' : ''}"
+      >
+    </td>
+    <td style="text-align:right; color:var(--danger);">-${formatarMoeda(l.valor)}</td>
+  </tr>`;
+}
+
+function renderPreviewExtrato(extrato) {
+  const opcoesCategoria = categoriasCartao.length ? categoriasCartao.map((c) => c.nome) : PADRAO_CARTAO;
+
+  const totalSaidaReal = extrato.lancamentos
+    .filter((l) => l.direcao === 'saida' && !l.interno && !l.internoFamilia && l.tipo !== 'pagamento_fatura')
+    .reduce((s, l) => s + l.valor, 0);
+  const qtdBatidas = extrato.lancamentos.filter((l) => l.contaFixaSugerida).length;
+
+  const linhas = extrato.lancamentos.map((l, i) => renderLinhaLancamento(l, i)).join('');
+
+  conteudo.innerHTML = `
+    ${progressoFilaHTML()}
+    <div class="fatura-resumo">
+      <div class="elevated-card resumo-card">
+        <span class="label">Titular</span>
+        ${
+          extrato.titular
+            ? `<span class="valor">${escapeHTML(extrato.titular)}</span>`
+            : `<input type="text" id="campo-titular" placeholder="De quem é essa conta?" class="campo-valor-inline" style="width:100%;">`
+        }
+      </div>
+      <div class="elevated-card resumo-card">
+        <span class="label">Período</span>
+        <span class="valor">${formatarData(extrato.periodoInicio)} a ${formatarData(extrato.periodoFim)}</span>
+      </div>
+      <div class="elevated-card resumo-card">
+        <span class="label">Saídas de dinheiro</span>
+        <span class="valor">${formatarMoeda(totalSaidaReal)}</span>
+      </div>
+      <div class="elevated-card resumo-card">
+        <span class="label">Contas fixas batidas</span>
+        <span class="valor">${qtdBatidas}</span>
+      </div>
+    </div>
+
+    <div class="elevated-card">
+      <h2 style="margin-top:0;">Lançamentos (${extrato.lancamentos.length})</h2>
+      <p style="color:var(--text-sec); font-size:0.85rem; margin-top:-8px;">
+        Quando um lançamento bate com uma conta fixa, ela é marcada como paga ao confirmar. O resto vira despesa categorizada — transferências internas (RDB, entre vocês dois) e o pagamento da fatura ficam de fora, pra não contar em dobro.
+      </p>
+      <datalist id="lista-categorias-cartao">
+        ${opcoesCategoria.map((nome) => `<option value="${escapeHTML(nome)}">`).join('')}
+      </datalist>
+      <div style="overflow-x:auto;">
+        <table class="transacoes-tabela">
+          <thead>
+            <tr><th>Data</th><th>Descrição</th><th>Conta fixa / categoria</th><th style="text-align:right;">Valor</th></tr>
+          </thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>
+
+      <div class="fatura-acoes">
+        <button id="btn-cancelar-extrato" class="btn-secondary" type="button">${filaArquivos.length > 1 ? 'Pular esta' : 'Cancelar'}</button>
+        <button id="btn-confirmar-extrato" class="btn-primary" type="button">Confirmar e salvar</button>
+      </div>
+      <div id="extrato-mensagem" class="fatura-mensagem"></div>
+    </div>
+  `;
+
+  conteudo.querySelectorAll('select[data-indice-lancamento]').forEach((select) => {
+    select.onchange = () => {
+      const idx = Number(select.dataset.indiceLancamento);
+      extrato.lancamentos[idx].contaFixaSugerida = select.value || null;
+      const inputCategoria = conteudo.querySelector(`input[data-indice-lancamento-categoria="${idx}"]`);
+      if (inputCategoria) inputCategoria.style.display = select.value ? 'none' : '';
+    };
+  });
+  conteudo.querySelectorAll('input[data-indice-lancamento-categoria]').forEach((input) => {
+    input.onchange = () => {
+      const idx = Number(input.dataset.indiceLancamentoCategoria);
+      extrato.lancamentos[idx].categoria = input.value.trim();
+    };
+  });
+
+  document.getElementById('btn-cancelar-extrato').onclick = () => {
+    if (filaArquivos.length > 1) {
+      resumoImportacao.push({ nomeArquivo: filaArquivos[indiceFila].name, status: 'pulada', mensagem: 'Pulada' });
+      avancarFila();
+    } else {
+      renderDropZone();
+    }
+  };
+
+  document.getElementById('btn-confirmar-extrato').onclick = async () => {
+    if (!uid) return;
+
+    if (!extrato.titular) {
+      const campoTitular = document.getElementById('campo-titular');
+      const nomeDigitado = campoTitular.value.trim();
+      if (!nomeDigitado) {
+        campoTitular.focus();
+        return;
+      }
+      extrato.titular = nomeDigitado;
+    }
+
+    const existente = await buscarExtratoPorPeriodo(uid, extrato.numeroConta, extrato.periodoInicio, extrato.periodoFim);
+    if (existente) {
+      const confirmou = confirm(
+        `Você já importou um extrato de ${formatarData(extrato.periodoInicio)} a ${formatarData(extrato.periodoFim)} pra essa conta. Quer substituir pelo novo? Clicar em Cancelar não importa esse extrato novo.`
+      );
+      if (!confirmou) return;
+    }
+
+    const botao = document.getElementById('btn-confirmar-extrato');
+    botao.disabled = true;
+    botao.textContent = 'Salvando...';
+
+    try {
+      await definirTitular(uid, extrato.numeroConta, extrato.titular);
+      if (!nomesTitulares.some((n) => pareceSerAMesmaPessoa(n, extrato.titular))) {
+        nomesTitulares.push(extrato.titular);
+      }
+
+      const nomesConhecidos = new Set(opcoesCategoria.map((c) => c.toLowerCase()));
+      const novasCategorias = new Set(
+        extrato.lancamentos.map((l) => l.categoria).filter((c) => c && !nomesConhecidos.has(c.toLowerCase()))
+      );
+      for (const nome of novasCategorias) {
+        await adicionarCategoria(uid, 'cartao', nome);
+      }
+      if (novasCategorias.size) categoriasCartao = await buscarCategorias(uid, 'cartao');
+
+      for (const l of extrato.lancamentos) {
+        if (l.contaFixaSugerida) {
+          const mes = l.data ? l.data.slice(0, 7) : mesAtualISO();
+          await marcarPago(uid, l.contaFixaSugerida, mes, l.valor);
+          await definirVinculo(uid, l.contraparte, l.contaFixaSugerida);
+          l.contaFixaId = l.contaFixaSugerida;
+        } else if (l.categoria) {
+          await definirCategoriaCompra(uid, l.contraparte, l.categoria);
+        }
+      }
+
+      if (existente) await excluirExtrato(uid, existente.id);
+      await salvarExtrato(uid, {
+        banco: extrato.banco,
+        numeroConta: extrato.numeroConta,
+        titular: extrato.titular,
+        periodoInicio: extrato.periodoInicio,
+        periodoFim: extrato.periodoFim,
+        lancamentos: extrato.lancamentos,
+      });
+
+      if (filaArquivos.length > 1) {
+        resumoImportacao.push({ nomeArquivo: filaArquivos[indiceFila].name, status: 'salva', mensagem: `Extrato salvo — ${extrato.titular}` });
+        avancarFila();
+      } else {
+        document.getElementById('extrato-mensagem').innerHTML =
+          '<p style="color:var(--success); font-weight:600;">Extrato salvo — contas fixas batidas foram marcadas como pagas.</p>';
+        botao.textContent = 'Salvo ✓';
+      }
+    } catch (err) {
+      console.error(err);
+      document.getElementById('extrato-mensagem').innerHTML =
+        '<p style="color:var(--danger); font-weight:600;">Não foi possível salvar. Tente novamente.</p>';
+      botao.disabled = false;
+      botao.textContent = 'Confirmar e salvar';
+    }
+  };
 }
 
 renderDropZone();
@@ -371,5 +696,8 @@ onAuthChange(async (user) => {
   await garantirCategoriasPadrao(uid);
   categoriasCartao = await buscarCategorias(uid, 'cartao');
   overridesCompras = await buscarCategoriasCompras(uid);
+  contasFixas = await buscarContas(uid);
+  vinculosContas = await buscarVinculos(uid);
+  nomesTitulares = await listarNomesTitulares(uid);
   resolverPronto();
 });

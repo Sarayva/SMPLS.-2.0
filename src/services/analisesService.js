@@ -28,7 +28,25 @@ export function anosComDados(contas, faturas) {
   return Array.from(anos).sort((a, b) => b - a);
 }
 
-export function calcularGastosPorMeses(contas, faturas, meses, overridesCompras = {}) {
+// Um lançamento de extrato só conta como despesa "avulsa" se: saiu dinheiro
+// de verdade (não é RDB nem transferência com a própria família) e ainda não
+// foi vinculado a uma conta fixa (senão a conta fixa paga já conta essa
+// mesma saída de dinheiro, e contaria em dobro).
+function lancamentosComoDespesa(extratos, mes) {
+  return extratos
+    .flatMap((e) => e.lancamentos || [])
+    .filter(
+      (l) =>
+        l.direcao === 'saida' &&
+        !l.interno &&
+        !l.internoFamilia &&
+        !l.contaFixaId &&
+        l.tipo !== 'pagamento_fatura' &&
+        l.data?.slice(0, 7) === mes
+    );
+}
+
+export function calcularGastosPorMeses(contas, faturas, extratos, meses, overridesCompras = {}) {
   const porMes = {};
 
   for (const mes of meses) {
@@ -56,17 +74,21 @@ export function calcularGastosPorMeses(contas, faturas, meses, overridesCompras 
       }
     }
 
+    for (const lancamento of lancamentosComoDespesa(extratos, mes)) {
+      somar(categoriaResolvida(overridesCompras, lancamento.contraparte, lancamento.categoria), lancamento.valor);
+    }
+
     porMes[mes] = { total, categorias };
   }
 
   return { meses, porMes };
 }
 
-export function calcularGastosPorMes(contas, faturas, qtdMeses = 6, overridesCompras = {}) {
-  return calcularGastosPorMeses(contas, faturas, mesesRecentes(qtdMeses), overridesCompras);
+export function calcularGastosPorMes(contas, faturas, extratos, qtdMeses = 6, overridesCompras = {}) {
+  return calcularGastosPorMeses(contas, faturas, extratos, mesesRecentes(qtdMeses), overridesCompras);
 }
 
-export function itensDasCategorias(contas, faturas, categorias, meses, overridesCompras = {}) {
+export function itensDasCategorias(contas, faturas, extratos, categorias, meses, overridesCompras = {}) {
   const itens = [];
 
   for (const mes of meses) {
@@ -114,6 +136,20 @@ export function itensDasCategorias(contas, faturas, categorias, meses, overrides
         });
       }
     }
+
+    lancamentosComoDespesa(extratos, mes).forEach((lancamento) => {
+      const categoria = categoriaResolvida(overridesCompras, lancamento.contraparte, lancamento.categoria);
+      if (!categorias.includes(categoria)) return;
+      itens.push({
+        tipo: 'lancamento',
+        descricaoOriginal: lancamento.contraparte,
+        origem: lancamento.tipo === 'compra_debito' ? 'Débito' : 'Pix',
+        nome: lancamento.contraparte,
+        categoria,
+        valor: lancamento.valor,
+        mes,
+      });
+    });
   }
 
   return itens.sort((a, b) => b.valor - a.valor);

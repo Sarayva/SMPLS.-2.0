@@ -4,6 +4,7 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  getDocs,
   onSnapshot,
   query,
   setDoc,
@@ -23,6 +24,11 @@ export function ouvirContas(uid, callback) {
     const contas = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
     callback(contas);
   });
+}
+
+export async function buscarContas(uid) {
+  const snapshot = await getDocs(query(contasRef(uid)));
+  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 }
 
 export async function salvarConta(uid, dados, contaId) {

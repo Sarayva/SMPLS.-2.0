@@ -204,3 +204,28 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+.extrato-linha-interna {
+  color: var(--text-sec);
+  font-size: 0.85rem;
+}
+
+.extrato-badge {
+  font-size: 0.7rem;
+  color: var(--text-sec);
+  background: var(--bg-card-sec);
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.extrato-select-conta {
+  font-size: 0.82rem;
+  padding: 5px 8px;
+  margin-bottom: 4px;
+}
+
+.extrato-input-categoria {
+  font-size: 0.82rem;
+  padding: 5px 8px;
+}
