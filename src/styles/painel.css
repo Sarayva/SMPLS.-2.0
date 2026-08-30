@@ -739,6 +739,11 @@ body {
   accent-color: var(--primary);
 }
 
+.categoria-similar-acoes {
+  display: flex;
+  gap: 8px;
+}
+
 .perfil-mensagem.erro {
   color: var(--danger);
 }

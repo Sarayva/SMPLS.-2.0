@@ -19,6 +19,10 @@ function configRef(uid) {
   return doc(db, 'users', uid, 'config', 'categorias');
 }
 
+function categoriasIgnoradasRef(uid) {
+  return collection(db, 'users', uid, 'categoriasIgnoradas');
+}
+
 export function ouvirCategorias(uid, tipo, callback) {
   return onSnapshot(query(categoriasRef(uid), where('tipo', '==', tipo)), (snapshot) => {
     const categorias = snapshot.docs
@@ -72,9 +76,32 @@ function distanciaEdicao(a, b) {
   return dist[linhas - 1][colunas - 1];
 }
 
+// Chave estável pra um grupo de categorias parecidas, independente da ordem
+// — usada tanto pra guardar "ignorar esse grupo" quanto pra reconhecer o
+// mesmo grupo de novo depois (ex: se uma terceira categoria parecida surgir
+// e o grupo mudar de tamanho, ele já não é mais "o mesmo grupo").
+function chaveGrupoCategorias(nomes) {
+  return nomes.map(normalizarNomeCategoria).sort().join('|');
+}
+
+export async function buscarGruposIgnorados(uid) {
+  const snapshot = await getDocs(categoriasIgnoradasRef(uid));
+  return new Set(snapshot.docs.map((d) => d.id));
+}
+
+export async function ignorarGrupoCategorias(uid, nomes) {
+  const chave = chaveGrupoCategorias(nomes);
+  await setDoc(doc(categoriasIgnoradasRef(uid), encodeURIComponent(chave)), {
+    nomes,
+    ignoradoEm: new Date().toISOString(),
+  });
+}
+
 // Agrupa categorias com grafia bem parecida (ex: "Compra Pontual" e "Compras
 // Pontuais") pra revisão manual — nunca decide sozinho qual fica, só sugere.
-export function encontrarCategoriasSimilares(categorias) {
+// Grupos que o usuário já marcou como "não é duplicata" (gruposIgnorados)
+// ficam de fora.
+export function encontrarCategoriasSimilares(categorias, gruposIgnorados = new Set()) {
   const grupos = [];
   const usadas = new Set();
 
@@ -98,7 +125,10 @@ export function encontrarCategoriasSimilares(categorias) {
 
     if (grupo.length > 1) {
       usadas.add(categorias[i].id);
-      grupos.push(grupo);
+      const chave = chaveGrupoCategorias(grupo.map((c) => c.nome));
+      if (!gruposIgnorados.has(encodeURIComponent(chave))) {
+        grupos.push(grupo);
+      }
     }
   }
 

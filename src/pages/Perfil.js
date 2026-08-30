@@ -1,7 +1,13 @@
 import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { atualizarPerfil, onAuthChange } from '../firebase/auth.js';
 import { avatarHTML } from '../services/avatarService.js';
-import { buscarCategorias, encontrarCategoriasSimilares, unificarCategorias } from '../services/categoriasService.js';
+import {
+  buscarCategorias,
+  buscarGruposIgnorados,
+  encontrarCategoriasSimilares,
+  ignorarGrupoCategorias,
+  unificarCategorias,
+} from '../services/categoriasService.js';
 import { buscarNomesFamilia, salvarNomesFamilia } from '../services/familiaService.js';
 import { escapeHTML } from '../services/securityService.js';
 import { initTheme } from '../services/themeService.js';
@@ -128,14 +134,15 @@ botaoSalvarFamilia.onclick = async () => {
 const listaCategoriasSimilaresEl = document.getElementById('categorias-similares-lista');
 
 async function carregarCategoriasSimilares() {
-  const [categoriasContas, categoriasCartao] = await Promise.all([
+  const [categoriasContas, categoriasCartao, gruposIgnorados] = await Promise.all([
     buscarCategorias(uidAtual, 'contas'),
     buscarCategorias(uidAtual, 'cartao'),
+    buscarGruposIgnorados(uidAtual),
   ]);
 
   const grupos = [
-    ...encontrarCategoriasSimilares(categoriasContas).map((grupo) => ({ tipo: 'contas', grupo })),
-    ...encontrarCategoriasSimilares(categoriasCartao).map((grupo) => ({ tipo: 'cartao', grupo })),
+    ...encontrarCategoriasSimilares(categoriasContas, gruposIgnorados).map((grupo) => ({ tipo: 'contas', grupo })),
+    ...encontrarCategoriasSimilares(categoriasCartao, gruposIgnorados).map((grupo) => ({ tipo: 'cartao', grupo })),
   ];
 
   if (grupos.length === 0) {
@@ -159,7 +166,10 @@ async function carregarCategoriasSimilares() {
             )
             .join('')}
         </div>
-        <button class="btn-secondary btn-unificar-categoria" data-tipo="${tipo}" data-grupo="${indiceGrupo}" type="button">Unificar</button>
+        <div class="categoria-similar-acoes">
+          <button class="btn-secondary btn-ignorar-categoria" data-grupo="${indiceGrupo}" type="button">Ignorar</button>
+          <button class="btn-secondary btn-unificar-categoria" data-tipo="${tipo}" data-grupo="${indiceGrupo}" type="button">Unificar</button>
+        </div>
       </div>
     `
     )
@@ -185,6 +195,25 @@ async function carregarCategoriasSimilares() {
         botao.disabled = false;
         botao.textContent = 'Unificar';
         alert('Não foi possível unificar. Tente de novo.');
+      }
+    };
+  });
+
+  listaCategoriasSimilaresEl.querySelectorAll('.btn-ignorar-categoria').forEach((botao) => {
+    botao.onclick = async () => {
+      const indiceGrupo = Number(botao.dataset.grupo);
+      const grupo = gruposPorIndice[indiceGrupo];
+
+      botao.disabled = true;
+      botao.textContent = 'Ignorando...';
+      try {
+        await ignorarGrupoCategorias(uidAtual, grupo.map((c) => c.nome));
+        await carregarCategoriasSimilares();
+      } catch (err) {
+        console.error(err);
+        botao.disabled = false;
+        botao.textContent = 'Ignorar';
+        alert('Não foi possível ignorar. Tente de novo.');
       }
     };
   });
