@@ -13,6 +13,8 @@ import { chaveCompra, definirCategoriaCompra, ouvirCategoriasCompras } from '../
 import { mesAtualISO, ouvirContas, salvarConta } from '../services/contasService.js';
 import { encontrarFaturasDuplicadas, mesclarFaturasDuplicadas, ouvirFaturas } from '../services/faturasService.js';
 import { ouvirExtratos } from '../services/extratosService.js';
+import { ouvirNomesFamilia } from '../services/familiaService.js';
+import { ouvirNomesTitulares } from '../services/titularesService.js';
 import { anguloDoPonteiro, fatiaNoAngulo, fatiasCategorias, gradienteDonut, pontosLinha } from '../services/graficosService.js';
 import { ouvirParcelamentos } from '../services/parcelamentosService.js';
 import { ouvirRendas } from '../services/rendaService.js';
@@ -30,6 +32,12 @@ let uid = null;
 let contas = [];
 let faturas = [];
 let extratos = [];
+let nomesFamiliaCadastrados = [];
+let nomesTitulares = [];
+
+function nomesFamiliaAtuais() {
+  return [...new Set([...nomesFamiliaCadastrados, ...nomesTitulares])];
+}
 let parcelamentos = [];
 let rendas = [];
 let categoriasContas = [];
@@ -185,7 +193,7 @@ async function salvarCategoriaItem(item, novaCategoria) {
 
 function abrirDetalheDaFatia(fatia, meses) {
   if (!fatia) return;
-  const itens = itensDasCategorias(contas, faturas, extratos, fatia.categoriasIncluidas, meses, overridesCompras);
+  const itens = itensDasCategorias(contas, faturas, extratos, nomesFamiliaAtuais(), fatia.categoriasIncluidas, meses, overridesCompras);
   const categoriasConhecidas = [...new Set([...categoriasContas.map((c) => c.nome), ...categoriasCartao.map((c) => c.nome)])];
   abrirModalDetalheCategoria(fatia.categoria, itens, fatia.valor, {
     categoriasConhecidas,
@@ -357,7 +365,7 @@ function renderizar() {
   const corpo = document.getElementById('painel-corpo');
   const anoSelecionado = Number(mesSelecionado.slice(0, 4));
   const mesesAno = mesesDoAno(anoSelecionado);
-  const { porMes } = calcularGastosPorMeses(contas, faturas, extratos, mesesAno, overridesCompras);
+  const { porMes } = calcularGastosPorMeses(contas, faturas, extratos, nomesFamiliaAtuais(), mesesAno, overridesCompras);
 
   const rendaTotal = rendas.filter((r) => r.ativa !== false).reduce((s, r) => s + r.valor, 0);
   const despesasDoMes = porMes[mesSelecionado]?.total ?? 0;
@@ -514,6 +522,14 @@ onAuthChange(async (user) => {
   });
   ouvirExtratos(uid, (novosExtratos) => {
     extratos = novosExtratos;
+    renderizar();
+  });
+  ouvirNomesFamilia(uid, (novosNomes) => {
+    nomesFamiliaCadastrados = novosNomes;
+    renderizar();
+  });
+  ouvirNomesTitulares(uid, (novosNomes) => {
+    nomesTitulares = novosNomes;
     renderizar();
   });
   ouvirParcelamentos(uid, (novosParcelamentos) => {

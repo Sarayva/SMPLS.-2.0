@@ -1,4 +1,4 @@
-import { collection, db, doc, getDoc, getDocs, setDoc } from '../firebase/firestore.js';
+import { collection, db, doc, getDoc, getDocs, onSnapshot, setDoc } from '../firebase/firestore.js';
 
 function titularesRef(uid) {
   return collection(db, 'users', uid, 'titulares');
@@ -19,4 +19,25 @@ export async function definirTitular(uid, numeroConta, nome) {
 export async function listarNomesTitulares(uid) {
   const snapshot = await getDocs(titularesRef(uid));
   return snapshot.docs.map((d) => d.data().nome).filter(Boolean);
+}
+
+export function ouvirNomesTitulares(uid, callback) {
+  return onSnapshot(titularesRef(uid), (snapshot) => {
+    callback(snapshot.docs.map((d) => d.data().nome).filter(Boolean));
+  });
+}
+
+export function normalizarNomePessoa(texto) {
+  return (texto || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+export function pareceSerAMesmaPessoa(nomeA, nomeB) {
+  const a = normalizarNomePessoa(nomeA);
+  const b = normalizarNomePessoa(nomeB);
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
 }

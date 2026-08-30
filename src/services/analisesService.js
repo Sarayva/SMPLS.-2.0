@@ -1,5 +1,8 @@
 import { categoriaResolvida } from './categoriasComprasService.js';
 import { statusConta } from './contasService.js';
+import { pareceSerAMesmaPessoa } from './titularesService.js';
+
+const TIPOS_TRANSFERENCIA = ['pix_enviado', 'pix_recebido', 'transferencia_enviada', 'transferencia_recebida', 'reembolso'];
 
 export function mesesRecentes(qtd) {
   const hoje = new Date();
@@ -28,25 +31,35 @@ export function anosComDados(contas, faturas) {
   return Array.from(anos).sort((a, b) => b - a);
 }
 
+// Se é Pix/transferência pra alguém que já conhecemos como membro da
+// família, não é gasto de verdade — é dinheiro só trocando de conta dentro
+// de casa. Recalculado toda vez (não fica preso à decisão tomada lá na
+// importação), porque um nome pode virar "conhecido" depois — aí passa a
+// valer também pros lançamentos antigos, sem precisar reimportar nada.
+function ehTransferenciaFamilia(lancamento, nomesFamilia) {
+  if (!TIPOS_TRANSFERENCIA.includes(lancamento.tipo)) return false;
+  return nomesFamilia.some((nome) => pareceSerAMesmaPessoa(nome, lancamento.contraparte));
+}
+
 // Um lançamento de extrato só conta como despesa "avulsa" se: saiu dinheiro
 // de verdade (não é RDB nem transferência com a própria família) e ainda não
 // foi vinculado a uma conta fixa (senão a conta fixa paga já conta essa
 // mesma saída de dinheiro, e contaria em dobro).
-function lancamentosComoDespesa(extratos, mes) {
+function lancamentosComoDespesa(extratos, mes, nomesFamilia) {
   return extratos
     .flatMap((e) => e.lancamentos || [])
     .filter(
       (l) =>
         l.direcao === 'saida' &&
         !l.interno &&
-        !l.internoFamilia &&
+        !ehTransferenciaFamilia(l, nomesFamilia) &&
         !l.contaFixaId &&
         l.tipo !== 'pagamento_fatura' &&
         l.data?.slice(0, 7) === mes
     );
 }
 
-export function calcularGastosPorMeses(contas, faturas, extratos, meses, overridesCompras = {}) {
+export function calcularGastosPorMeses(contas, faturas, extratos, nomesFamilia, meses, overridesCompras = {}) {
   const porMes = {};
 
   for (const mes of meses) {
@@ -74,7 +87,7 @@ export function calcularGastosPorMeses(contas, faturas, extratos, meses, overrid
       }
     }
 
-    for (const lancamento of lancamentosComoDespesa(extratos, mes)) {
+    for (const lancamento of lancamentosComoDespesa(extratos, mes, nomesFamilia)) {
       somar(categoriaResolvida(overridesCompras, lancamento.contraparte, lancamento.categoria), lancamento.valor);
     }
 
@@ -84,11 +97,11 @@ export function calcularGastosPorMeses(contas, faturas, extratos, meses, overrid
   return { meses, porMes };
 }
 
-export function calcularGastosPorMes(contas, faturas, extratos, qtdMeses = 6, overridesCompras = {}) {
-  return calcularGastosPorMeses(contas, faturas, extratos, mesesRecentes(qtdMeses), overridesCompras);
+export function calcularGastosPorMes(contas, faturas, extratos, nomesFamilia, qtdMeses = 6, overridesCompras = {}) {
+  return calcularGastosPorMeses(contas, faturas, extratos, nomesFamilia, mesesRecentes(qtdMeses), overridesCompras);
 }
 
-export function itensDasCategorias(contas, faturas, extratos, categorias, meses, overridesCompras = {}) {
+export function itensDasCategorias(contas, faturas, extratos, nomesFamilia, categorias, meses, overridesCompras = {}) {
   const itens = [];
 
   for (const mes of meses) {
@@ -137,7 +150,7 @@ export function itensDasCategorias(contas, faturas, extratos, categorias, meses,
       }
     }
 
-    lancamentosComoDespesa(extratos, mes).forEach((lancamento) => {
+    lancamentosComoDespesa(extratos, mes, nomesFamilia).forEach((lancamento) => {
       const categoria = categoriaResolvida(overridesCompras, lancamento.contraparte, lancamento.categoria);
       if (!categorias.includes(categoria)) return;
       itens.push({

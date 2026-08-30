@@ -706,6 +706,39 @@ body {
   color: var(--success);
 }
 
+.categoria-similar-grupo {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.categoria-similar-grupo:last-child {
+  border-bottom: none;
+}
+
+.categoria-similar-opcoes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.categoria-similar-opcao {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.categoria-similar-opcao input {
+  width: auto;
+  accent-color: var(--primary);
+}
+
 .perfil-mensagem.erro {
   color: var(--danger);
 }

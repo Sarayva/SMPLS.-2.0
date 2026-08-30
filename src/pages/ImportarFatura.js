@@ -11,7 +11,8 @@ import { buscarExtratoPorPeriodo, excluirExtrato, salvarExtrato } from '../servi
 import { buscarFaturaPorCompetencia, excluirFatura, salvarFatura } from '../services/faturasService.js';
 import { mesclarParcelas } from '../services/parcelamentosService.js';
 import { extrairLinhas } from '../services/pdfService.js';
-import { buscarTitular, definirTitular, listarNomesTitulares } from '../services/titularesService.js';
+import { buscarNomesFamilia } from '../services/familiaService.js';
+import { buscarTitular, definirTitular, listarNomesTitulares, pareceSerAMesmaPessoa } from '../services/titularesService.js';
 import { icones } from '../services/icones.js';
 import { escapeHTML } from '../services/securityService.js';
 import { initTheme } from '../services/themeService.js';
@@ -25,6 +26,7 @@ let overridesCompras = {};
 let contasFixas = [];
 let vinculosContas = {};
 let nomesTitulares = [];
+let nomesFamiliaCadastrados = [];
 let resolverPronto;
 const pronto = new Promise((resolve) => {
   resolverPronto = resolve;
@@ -34,19 +36,8 @@ let filaArquivos = [];
 let indiceFila = 0;
 let resumoImportacao = [];
 
-function normalizarTexto(texto) {
-  return (texto || '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-function pareceSerAMesmaPessoa(nomeA, nomeB) {
-  const a = normalizarTexto(nomeA);
-  const b = normalizarTexto(nomeB);
-  if (!a || !b) return false;
-  return a === b || a.includes(b) || b.includes(a);
+function nomesFamiliaConhecidos() {
+  return [...new Set([...nomesFamiliaCadastrados, ...nomesTitulares])];
 }
 
 const app = document.getElementById('app');
@@ -439,10 +430,11 @@ async function processarCsv(arquivo) {
 // paga nesse mês (por vínculo já ensinado antes, ou por ter o valor exato).
 function anotarLancamentos(extrato) {
   const TIPOS_TRANSFERENCIA = ['pix_enviado', 'pix_recebido', 'transferencia_enviada', 'transferencia_recebida', 'reembolso'];
+  const nomesConhecidos = nomesFamiliaConhecidos();
 
   extrato.lancamentos.forEach((l) => {
     l.internoFamilia = TIPOS_TRANSFERENCIA.includes(l.tipo)
-      ? nomesTitulares.some((nome) => pareceSerAMesmaPessoa(nome, l.contraparte))
+      ? nomesConhecidos.some((nome) => pareceSerAMesmaPessoa(nome, l.contraparte))
       : false;
 
     const ehAcaoNecessaria = l.direcao === 'saida' && !l.interno && !l.internoFamilia && l.tipo !== 'pagamento_fatura';
@@ -699,5 +691,6 @@ onAuthChange(async (user) => {
   contasFixas = await buscarContas(uid);
   vinculosContas = await buscarVinculos(uid);
   nomesTitulares = await listarNomesTitulares(uid);
+  nomesFamiliaCadastrados = await buscarNomesFamilia(uid);
   resolverPronto();
 });

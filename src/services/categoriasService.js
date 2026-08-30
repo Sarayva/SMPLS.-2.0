@@ -1,4 +1,5 @@
-import { collection, db, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from '../firebase/firestore.js';
+import { collection, db, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, updateDoc, where } from '../firebase/firestore.js';
+import { buscarCategoriasCompras, definirCategoriaCompra } from './categoriasComprasService.js';
 
 export const PADRAO_CONTAS = [
   'Aluguel/Financiamento', 'Condomínio', 'IPTU', 'Energia', 'Água', 'Gás',
@@ -42,6 +43,95 @@ export async function adicionarCategoria(uid, tipo, nome) {
 
 export async function removerCategoria(uid, categoriaId) {
   await deleteDoc(doc(categoriasRef(uid), categoriaId));
+}
+
+function normalizarNomeCategoria(nome) {
+  return (nome || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+// Distância de edição simples (Levenshtein) — pega diferenças pequenas de
+// grafia (singular/plural, acento esquecido, letra a mais) sem precisar
+// codificar regra nenhuma de plural do português.
+function distanciaEdicao(a, b) {
+  const linhas = a.length + 1;
+  const colunas = b.length + 1;
+  const dist = Array.from({ length: linhas }, (_, i) => [i, ...Array(colunas - 1).fill(0)]);
+  for (let j = 0; j < colunas; j++) dist[0][j] = j;
+
+  for (let i = 1; i < linhas; i++) {
+    for (let j = 1; j < colunas; j++) {
+      const custo = a[i - 1] === b[j - 1] ? 0 : 1;
+      dist[i][j] = Math.min(dist[i - 1][j] + 1, dist[i][j - 1] + 1, dist[i - 1][j - 1] + custo);
+    }
+  }
+  return dist[linhas - 1][colunas - 1];
+}
+
+// Agrupa categorias com grafia bem parecida (ex: "Compra Pontual" e "Compras
+// Pontuais") pra revisão manual — nunca decide sozinho qual fica, só sugere.
+export function encontrarCategoriasSimilares(categorias) {
+  const grupos = [];
+  const usadas = new Set();
+
+  for (let i = 0; i < categorias.length; i++) {
+    if (usadas.has(categorias[i].id)) continue;
+    const grupo = [categorias[i]];
+    const normA = normalizarNomeCategoria(categorias[i].nome);
+
+    for (let j = i + 1; j < categorias.length; j++) {
+      if (usadas.has(categorias[j].id)) continue;
+      const normB = normalizarNomeCategoria(categorias[j].nome);
+      if (normA === normB) continue; // nome idêntico não é o caso que queremos aqui
+
+      const distancia = distanciaEdicao(normA, normB);
+      const limite = Math.max(2, Math.ceil(Math.max(normA.length, normB.length) * 0.25));
+      if (distancia > 0 && distancia <= limite) {
+        grupo.push(categorias[j]);
+        usadas.add(categorias[j].id);
+      }
+    }
+
+    if (grupo.length > 1) {
+      usadas.add(categorias[i].id);
+      grupos.push(grupo);
+    }
+  }
+
+  return grupos;
+}
+
+// Junta um grupo de categorias parecidas num nome só: renomeia contas
+// fixas e regras de categoria de compras que usavam os nomes antigos,
+// e apaga as categorias duplicadas da lista (mantém só a escolhida).
+export async function unificarCategorias(uid, tipo, categoriasDoGrupo, nomeEscolhido) {
+  const nomesAntigos = categoriasDoGrupo.map((c) => c.nome).filter((nome) => nome !== nomeEscolhido);
+
+  if (tipo === 'contas') {
+    const snapshot = await getDocs(collection(db, 'users', uid, 'contasFixas'));
+    for (const docSnap of snapshot.docs) {
+      if (nomesAntigos.includes(docSnap.data().categoria)) {
+        await updateDoc(doc(db, 'users', uid, 'contasFixas', docSnap.id), { categoria: nomeEscolhido });
+      }
+    }
+  } else {
+    const overrides = await buscarCategoriasCompras(uid);
+    for (const [chave, categoria] of Object.entries(overrides)) {
+      if (nomesAntigos.includes(categoria)) {
+        await definirCategoriaCompra(uid, chave, nomeEscolhido);
+      }
+    }
+  }
+
+  for (const categoria of categoriasDoGrupo) {
+    if (categoria.nome !== nomeEscolhido) {
+      await removerCategoria(uid, categoria.id);
+    }
+  }
 }
 
 export async function garantirCategoriasPadrao(uid) {
