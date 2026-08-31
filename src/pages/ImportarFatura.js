@@ -3,7 +3,13 @@ import { onAuthChange } from '../firebase/auth.js';
 import { pareceSerFaturaNubank, parseNubank } from '../parsers/nubank.js';
 import { pareceSerFaturaCsv, parseFaturaCsv } from '../parsers/faturaCsv.js';
 import { pareceSerExtratoCsv, parseExtratoCsv } from '../parsers/extratoCsv.js';
-import { buscarCategoriasCompras, categoriaResolvida, definirCategoriaCompra } from '../services/categoriasComprasService.js';
+import {
+  buscarCategoriasCompras,
+  buscarCategoriasGlobais,
+  categoriaResolvida,
+  combinarOverrides,
+  definirCategoriaCompra,
+} from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { categorizar } from '../services/categorizacaoService.js';
 import { buscarContas, marcarPago, mesAtualISO, statusConta } from '../services/contasService.js';
@@ -687,7 +693,8 @@ onAuthChange(async (user) => {
   atualizarPerfilSidebar(user.displayName);
   await garantirCategoriasPadrao(uid);
   categoriasCartao = await buscarCategorias(uid, 'cartao');
-  overridesCompras = await buscarCategoriasCompras(uid);
+  const [overridesPessoais, overridesGlobais] = await Promise.all([buscarCategoriasCompras(uid), buscarCategoriasGlobais()]);
+  overridesCompras = combinarOverrides(overridesGlobais, overridesPessoais);
   contasFixas = await buscarContas(uid);
   vinculosContas = await buscarVinculos(uid);
   nomesTitulares = await listarNomesTitulares(uid);

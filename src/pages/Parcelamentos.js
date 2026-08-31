@@ -1,6 +1,12 @@
 import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
-import { categoriaResolvida, definirCategoriaCompra, ouvirCategoriasCompras } from '../services/categoriasComprasService.js';
+import {
+  categoriaResolvida,
+  combinarOverrides,
+  definirCategoriaCompra,
+  ouvirCategoriasCompras,
+  ouvirCategoriasGlobais,
+} from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { ouvirFaturas } from '../services/faturasService.js';
 import { encontrarDuplicatas, mesclarDuplicata, ouvirParcelamentos } from '../services/parcelamentosService.js';
@@ -14,6 +20,8 @@ let pararDeOuvir = null;
 let categoriasCartao = [];
 let parcelamentosAtuais = [];
 let faturasAtuais = [];
+let overridesPessoais = {};
+let overridesGlobais = {};
 let overridesCompras = {};
 
 const app = document.getElementById('app');
@@ -261,7 +269,13 @@ onAuthChange(async (user) => {
   });
 
   ouvirCategoriasCompras(uid, (novosOverrides) => {
-    overridesCompras = novosOverrides;
+    overridesPessoais = novosOverrides;
+    overridesCompras = combinarOverrides(overridesGlobais, overridesPessoais);
+    renderizar(parcelamentosAtuais);
+  });
+  ouvirCategoriasGlobais((novosOverrides) => {
+    overridesGlobais = novosOverrides;
+    overridesCompras = combinarOverrides(overridesGlobais, overridesPessoais);
     renderizar(parcelamentosAtuais);
   });
 });

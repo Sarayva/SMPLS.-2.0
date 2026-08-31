@@ -9,7 +9,13 @@ import {
   buscarCategorias,
   garantirCategoriasPadrao,
 } from '../services/categoriasService.js';
-import { chaveCompra, definirCategoriaCompra, ouvirCategoriasCompras } from '../services/categoriasComprasService.js';
+import {
+  chaveCompra,
+  combinarOverrides,
+  definirCategoriaCompra,
+  ouvirCategoriasCompras,
+  ouvirCategoriasGlobais,
+} from '../services/categoriasComprasService.js';
 import { mesAtualISO, ouvirContas, salvarConta } from '../services/contasService.js';
 import { encontrarFaturasDuplicadas, mesclarFaturasDuplicadas, ouvirFaturas } from '../services/faturasService.js';
 import { ouvirExtratos } from '../services/extratosService.js';
@@ -42,6 +48,8 @@ let parcelamentos = [];
 let rendas = [];
 let categoriasContas = [];
 let categoriasCartao = [];
+let overridesPessoais = {};
+let overridesGlobais = {};
 let overridesCompras = {};
 let mesSelecionado = mesAtualISO();
 const estadoDonuts = {};
@@ -58,7 +66,7 @@ async function tentarBackfillCategorias() {
   if (backfillFeito || !parcelamentosCarregados || !categoriasComprasCarregadas || !uid) return;
   backfillFeito = true;
   for (const p of parcelamentos) {
-    if (!p.categoria || chaveCompra(p.descricao) in overridesCompras) continue;
+    if (!p.categoria || chaveCompra(p.descricao) in overridesPessoais) continue;
     await definirCategoriaCompra(uid, p.descricao, p.categoria);
   }
 }
@@ -562,9 +570,15 @@ onAuthChange(async (user) => {
     renderizar();
   });
   ouvirCategoriasCompras(uid, (novosOverrides) => {
-    overridesCompras = novosOverrides;
+    overridesPessoais = novosOverrides;
+    overridesCompras = combinarOverrides(overridesGlobais, overridesPessoais);
     categoriasComprasCarregadas = true;
     tentarBackfillCategorias();
+    renderizar();
+  });
+  ouvirCategoriasGlobais((novosOverrides) => {
+    overridesGlobais = novosOverrides;
+    overridesCompras = combinarOverrides(overridesGlobais, overridesPessoais);
     renderizar();
   });
 });
