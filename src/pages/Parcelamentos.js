@@ -250,6 +250,7 @@ onAuthChange(async (user) => {
   document.getElementById('lista-categorias-cartao').innerHTML = categoriasCartao
     .map((c) => `<option value="${escapeHTML(c.nome)}">`)
     .join('');
+  document.body.dataset.authReady = 'true';
 
   if (pararDeOuvir) pararDeOuvir();
   pararDeOuvir = ouvirParcelamentos(uid, renderizar);

@@ -21,10 +21,18 @@ export function ouvirParcelamentos(uid, callback) {
   });
 }
 
+// Duas compras diferentes no mesmo estabelecimento, com o mesmo número de
+// parcelas (ex: dois serviços distintos na "Ramon Auto Center", cada um em
+// 3x), não podem ser tratadas como a mesma coisa só por nome+total baterem
+// — por isso o mês em que a compra começou também entra na chave.
+function chaveParcelamento(descricao, parcelaTotal, primeiraCompetencia) {
+  return `${normalizar(descricao)}|${parcelaTotal}|${primeiraCompetencia || ''}`;
+}
+
 export function encontrarDuplicatas(parcelamentos) {
   const grupos = {};
   for (const p of parcelamentos) {
-    const chave = `${normalizar(p.descricao)}|${p.parcelaTotal}`;
+    const chave = chaveParcelamento(p.descricao, p.parcelaTotal, p.primeiraCompetencia);
     (grupos[chave] ??= []).push(p);
   }
   return Object.values(grupos).filter((grupo) => grupo.length > 1);
@@ -58,12 +66,18 @@ export async function mesclarParcelas(uid, fatura) {
   const existentes = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 
   for (const transacao of transacoesParceladas) {
-    // Casamento só por descrição + total de parcelas: o valor da parcela pode
-    // variar alguns centavos entre faturas por arredondamento do banco, então
-    // não pode fazer parte da chave (senão a mesma compra vira duas linhas).
+    // Casamento por descrição + total de parcelas + mês em que a compra
+    // começou (não por valor, que pode variar centavos por arredondamento
+    // do banco). O mês de início entra na chave pra não confundir duas
+    // compras diferentes no mesmo estabelecimento com o mesmo total de
+    // parcelas (ex: duas compras de 3x na "Ramon Auto Center").
+    const primeiraCompetenciaImplicada = somarMeses(fatura.competencia, -(transacao.parcelaAtual - 1));
     const chaveDescricao = normalizar(transacao.descricao);
     const existente = existentes.find(
-      (p) => normalizar(p.descricao) === chaveDescricao && p.parcelaTotal === transacao.parcelaTotal
+      (p) =>
+        normalizar(p.descricao) === chaveDescricao &&
+        p.parcelaTotal === transacao.parcelaTotal &&
+        (p.primeiraCompetencia || somarMeses(p.ultimaCompetencia, -(p.parcelaAtual - 1))) === primeiraCompetenciaImplicada
     );
 
     const parcelaAtual = existente ? Math.max(existente.parcelaAtual, transacao.parcelaAtual) : transacao.parcelaAtual;
