@@ -273,6 +273,13 @@ function renderPreview(fatura) {
       }
       categoriasCartao = await buscarCategorias(uid, 'cartao');
 
+      // Grava a categoria de cada compra na tabela central — sem isso, editar
+      // a categoria aqui na prévia só valia pra essa fatura, e a próxima
+      // fatura com a mesma compra voltava a pedir de novo.
+      await Promise.all(
+        fatura.transacoes.filter((t) => t.categoria).map((t) => definirCategoriaCompra(uid, t.descricao, t.categoria))
+      );
+
       if (existente) await excluirFatura(uid, existente.id);
       await salvarFatura(uid, fatura);
       await mesclarParcelas(uid, fatura);

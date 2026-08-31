@@ -1,4 +1,4 @@
-import { collection, db, doc, getDocs, onSnapshot, query, setDoc } from '../firebase/firestore.js';
+import { collection, db, doc, getDoc, getDocs, onSnapshot, query, setDoc } from '../firebase/firestore.js';
 
 function categoriasComprasRef(uid) {
   return collection(db, 'users', uid, 'categoriasCompras');
@@ -64,6 +64,23 @@ export function combinarOverrides(overridesGlobais, overridesPessoais) {
   return { ...(overridesGlobais || {}), ...(overridesPessoais || {}) };
 }
 
+// Só grava a sugestão global se ainda não existir nenhuma pra essa compra —
+// assim, quando alguém só está ajustando a categoria pra si mesmo (e não
+// "ensinando" pela primeira vez), isso não rouba a sugestão que os outros
+// usuários já veem. Quem ensina primeiro define a sugestão; os demais podem
+// se desviar dela livremente sem afetar ninguém.
+async function ensinarGlobalSeAindaNaoExistir(chave, dados) {
+  try {
+    const refDoc = doc(categoriasGlobaisRef(), chave);
+    const existente = await getDoc(refDoc);
+    if (!existente.exists()) {
+      await setDoc(refDoc, dados);
+    }
+  } catch (err) {
+    console.error('Salvei sua categoria, mas não consegui compartilhar globalmente:', err);
+  }
+}
+
 export async function definirCategoriaCompra(uid, descricao, categoria) {
   const chave = chaveCompra(descricao);
   const dados = { descricao, categoria, atualizadoEm: new Date().toISOString() };
@@ -74,9 +91,7 @@ export async function definirCategoriaCompra(uid, descricao, categoria) {
   // liberaram essa coleção), só avisa no console, não trava nada.
   const [resultadoPessoal] = await Promise.allSettled([
     setDoc(doc(categoriasComprasRef(uid), chave), dados),
-    setDoc(doc(categoriasGlobaisRef(), chave), dados).catch((err) => {
-      console.error('Salvei sua categoria, mas não consegui compartilhar globalmente:', err);
-    }),
+    ensinarGlobalSeAindaNaoExistir(chave, dados),
   ]);
 
   if (resultadoPessoal.status === 'rejected') throw resultadoPessoal.reason;
