@@ -65,26 +65,23 @@ async function tentarBackfillCategorias() {
 
 const app = document.getElementById('app');
 
-const filtrosSidebar = `
-  <div class="painel-filtro">
-    <span class="painel-filtro-titulo">Ano</span>
-    <div id="lista-anos" class="painel-lista-anos"></div>
-  </div>
-
-  <div class="painel-filtro painel-filtro-meses">
-    <span class="painel-filtro-titulo">Mês</span>
-    <div id="lista-meses" class="painel-lista-meses"></div>
-  </div>
-`;
-
 app.innerHTML = `
   <div class="painel-shell">
-    ${sidebarHTML('geral', filtrosSidebar)}
+    ${sidebarHTML('geral')}
 
     <main class="painel-conteudo">
-      <div class="painel-topo">
-        <h1 id="saudacao">Olá 👋</h1>
-        <p>Sua visão geral financeira.</p>
+      <div class="painel-topo painel-topo-com-seletor">
+        <div>
+          <h1 id="saudacao">Olá 👋</h1>
+          <p>Sua visão geral financeira.</p>
+        </div>
+        <div class="mes-seletor">
+          <button id="btn-mes-seletor" class="mes-seletor-botao" type="button">
+            <span id="mes-seletor-rotulo">—</span>
+            <span class="mes-seletor-seta">▾</span>
+          </button>
+          <div id="mes-seletor-painel" class="mes-seletor-painel" hidden></div>
+        </div>
       </div>
 
       <div id="aviso-faturas-duplicadas"></div>
@@ -97,6 +94,24 @@ app.innerHTML = `
 `;
 
 ligarSidebar();
+
+function fecharSeletorMes() {
+  document.getElementById('mes-seletor-painel').hidden = true;
+}
+
+document.getElementById('btn-mes-seletor').onclick = (e) => {
+  e.stopPropagation();
+  const painel = document.getElementById('mes-seletor-painel');
+  painel.hidden = !painel.hidden;
+};
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.mes-seletor')) fecharSeletorMes();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') fecharSeletorMes();
+});
 
 function formatarMoeda(valor) {
   return (valor ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -465,30 +480,34 @@ function renderFiltros() {
   const mesAtual = Number(mesSelecionado.slice(5, 7));
   const anos = anosComDados(contas, faturas);
 
-  document.getElementById('lista-anos').innerHTML = anos
-    .map((ano) => `<button class="painel-chip ${ano === anoSelecionado ? 'ativo' : ''}" data-ano="${ano}" type="button">${ano}</button>`)
+  document.getElementById('mes-seletor-rotulo').textContent = `${NOMES_MESES[mesAtual - 1]} ${anoSelecionado}`;
+
+  const painel = document.getElementById('mes-seletor-painel');
+  painel.innerHTML = anos
+    .map(
+      (ano) => `
+      <div class="mes-seletor-grupo">
+        <span class="mes-seletor-ano">${ano}</span>
+        <div class="mes-seletor-meses">
+          ${NOMES_MESES.map((nome, i) => {
+            const numero = i + 1;
+            const ativo = ano === anoSelecionado && numero === mesAtual;
+            return `<button class="mes-seletor-item ${ativo ? 'ativo' : ''}" data-ano="${ano}" data-mes="${numero}" type="button">${nome}</button>`;
+          }).join('')}
+        </div>
+      </div>
+    `
+    )
     .join('');
 
-  document.getElementById('lista-meses').innerHTML = NOMES_MESES.map((nome, i) => {
-    const numero = i + 1;
-    return `<button class="painel-chip-mes ${numero === mesAtual ? 'ativo' : ''}" data-mes="${numero}" type="button">${nome}</button>`;
-  }).join('');
-
-  document.getElementById('lista-anos').querySelectorAll('[data-ano]').forEach((btn) => {
+  painel.querySelectorAll('[data-mes]').forEach((btn) => {
     btn.onclick = () => {
       const ano = Number(btn.dataset.ano);
-      mesSelecionado = `${ano}-${mesSelecionado.slice(5, 7)}`;
-      renderFiltros();
-      renderizar();
-    };
-  });
-
-  document.getElementById('lista-meses').querySelectorAll('[data-mes]').forEach((btn) => {
-    btn.onclick = () => {
       const mes = String(btn.dataset.mes).padStart(2, '0');
-      mesSelecionado = `${mesSelecionado.slice(0, 4)}-${mes}`;
+      mesSelecionado = `${ano}-${mes}`;
       renderFiltros();
       renderizar();
+      fecharSeletorMes();
     };
   });
 }

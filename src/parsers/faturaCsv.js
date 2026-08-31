@@ -1,3 +1,5 @@
+import { competenciaPorDatas } from './competenciaUtil.js';
+
 function parseValorCSV(texto) {
   const limpo = texto.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
   return parseFloat(limpo);
@@ -49,7 +51,6 @@ export function competenciaDoNomeArquivo(nomeArquivo) {
 export function parseFaturaCsv(textoCSV, nomeArquivo, categorizar) {
   const linhas = textoCSV.split(/\r\n|\n/).filter((l) => l.trim() !== '');
   const vencimento = competenciaDoNomeArquivo(nomeArquivo);
-  const competencia = vencimento ? vencimento.slice(0, 7) : null;
 
   const transacoes = [];
   const encargos = [];
@@ -88,6 +89,7 @@ export function parseFaturaCsv(textoCSV, nomeArquivo, categorizar) {
   }
 
   const valorTotal = transacoes.reduce((s, t) => s + t.valor, 0) + encargos.reduce((s, e) => s + e.valor, 0);
+  const competencia = competenciaPorDatas(transacoes, encargos, vencimento);
 
   return {
     banco: 'nubank',

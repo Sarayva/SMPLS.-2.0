@@ -1,3 +1,5 @@
+import { competenciaPorDatas } from './competenciaUtil.js';
+
 const MESES = {
   JAN: '01', FEV: '02', MAR: '03', ABR: '04', MAI: '05', JUN: '06',
   JUL: '07', AGO: '08', SET: '09', OUT: '10', NOV: '11', DEZ: '12',
@@ -28,7 +30,6 @@ export function parseNubank(linhas, categorizar) {
   const vencimento = matchVencimento
     ? paraDataISO(matchVencimento[1], matchVencimento[2], matchVencimento[3])
     : null;
-  const competencia = vencimento ? vencimento.slice(0, 7) : null;
   const anoVencimento = matchVencimento ? parseInt(matchVencimento[3], 10) : null;
   const mesVencimento = vencimento ? parseInt(vencimento.slice(5, 7), 10) : null;
 
@@ -93,6 +94,8 @@ export function parseNubank(linhas, categorizar) {
       categoria: categorizar(descricao),
     });
   }
+
+  const competencia = competenciaPorDatas(transacoes, encargos, vencimento);
 
   return {
     banco: 'nubank',
