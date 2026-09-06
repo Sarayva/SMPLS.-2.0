@@ -17,7 +17,12 @@ import {
   ouvirCategoriasGlobais,
 } from '../services/categoriasComprasService.js';
 import { mesAtualISO, ouvirContas, salvarConta } from '../services/contasService.js';
-import { encontrarFaturasDuplicadas, mesclarFaturasDuplicadas, ouvirFaturas } from '../services/faturasService.js';
+import {
+  encontrarFaturasDuplicadas,
+  encontrarFaturasFaltando,
+  mesclarFaturasDuplicadas,
+  ouvirFaturas,
+} from '../services/faturasService.js';
 import { ouvirExtratos } from '../services/extratosService.js';
 import { ouvirNomesFamilia } from '../services/familiaService.js';
 import { ouvirNomesTitulares } from '../services/titularesService.js';
@@ -93,6 +98,7 @@ app.innerHTML = `
       </div>
 
       <div id="aviso-faturas-duplicadas"></div>
+      <div id="aviso-faturas-faltando"></div>
 
       <div id="painel-corpo">
         <p class="vazio">Carregando...</p>
@@ -383,8 +389,26 @@ function renderAvisoFaturasDuplicadas() {
   };
 }
 
+function renderAvisoFaturasFaltando() {
+  const avisoEl = document.getElementById('aviso-faturas-faltando');
+  const faltando = encontrarFaturasFaltando(faturas);
+
+  if (faltando.length === 0) {
+    avisoEl.innerHTML = '';
+    return;
+  }
+
+  const meses = faltando.map(formatarCompetencia).join(', ');
+  avisoEl.innerHTML = `
+    <div class="elevated-card aviso-duplicatas">
+      <span>Faltam faturas de: ${meses}. Sem elas, compras parceladas que terminam nesses meses ficam com o número de parcela desatualizado — importe essas faturas em "Importar fatura" pra corrigir.</span>
+    </div>
+  `;
+}
+
 function renderizar() {
   renderAvisoFaturasDuplicadas();
+  renderAvisoFaturasFaltando();
   const corpo = document.getElementById('painel-corpo');
   const anoSelecionado = Number(mesSelecionado.slice(0, 4));
   const mesesAno = mesesDoAno(anoSelecionado);
@@ -403,8 +427,12 @@ function renderizar() {
 
   // Não é "só parcela que termina este mês" — toda parcela paga neste mês
   // libera o próprio valor dela no limite, não importa se é a 1ª ou a última.
+  // "Paga neste mês" é o vencimento da fatura (quando o dinheiro sai/libera
+  // limite de verdade), não a competência (que hoje é o mês da compra — uma
+  // fatura que vence em setembro tem competência agosto, porque a maior
+  // parte das compras nela foi feita em agosto).
   const limiteLiberado = faturas
-    .filter((f) => f.competencia === mesSelecionado)
+    .filter((f) => f.vencimento && f.vencimento.slice(0, 7) === mesSelecionado)
     .flatMap((f) => f.transacoes || [])
     .filter((t) => t.parcelaTotal)
     .reduce((s, t) => s + t.valor, 0);

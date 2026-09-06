@@ -8,8 +8,15 @@ import {
   ouvirCategoriasGlobais,
 } from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
-import { ouvirFaturas } from '../services/faturasService.js';
-import { encontrarDuplicatas, mesclarDuplicata, ouvirParcelamentos } from '../services/parcelamentosService.js';
+import { mesAtualISO } from '../services/contasService.js';
+import { encontrarFaturasFaltando, marcarFaturaPaga, ouvirFaturas } from '../services/faturasService.js';
+import {
+  encontrarDuplicatas,
+  excluirParcelamento,
+  marcarQuitadoManual,
+  mesclarDuplicata,
+  ouvirParcelamentos,
+} from '../services/parcelamentosService.js';
 import { escapeHTML } from '../services/securityService.js';
 import { initTheme } from '../services/themeService.js';
 
@@ -41,8 +48,10 @@ app.innerHTML = `
 
     <datalist id="lista-categorias-cartao"></datalist>
 
+    <div id="fatura-do-mes"></div>
     <div id="resumo-limite-cartao"></div>
 
+    <div id="aviso-faturas-faltando"></div>
     <div id="aviso-duplicatas"></div>
 
     <div id="lista-parcelamentos">
@@ -55,9 +64,31 @@ app.innerHTML = `
 
 ligarSidebar();
 
-document.getElementById('lista-parcelamentos').addEventListener('click', (e) => {
+document.getElementById('lista-parcelamentos').addEventListener('click', async (e) => {
+  if (!uid) return;
+
   const badge = e.target.closest('.badge-categoria');
-  if (badge && uid) editarCategoriaInline(badge);
+  if (badge) {
+    editarCategoriaInline(badge);
+    return;
+  }
+
+  const btnQuitar = e.target.closest('[data-quitar-id]');
+  if (btnQuitar) {
+    const p = parcelamentosAtuais.find((item) => item.id === btnQuitar.dataset.quitarId);
+    if (p && confirm(`Marcar "${p.descricao}" como quitada? Ela some da lista de ativas e para de contar no limite comprometido.`)) {
+      await marcarQuitadoManual(uid, p.id);
+    }
+    return;
+  }
+
+  const btnExcluir = e.target.closest('[data-excluir-id]');
+  if (btnExcluir) {
+    const p = parcelamentosAtuais.find((item) => item.id === btnExcluir.dataset.excluirId);
+    if (p && confirm(`Excluir "${p.descricao}" definitivamente? Essa ação não pode ser desfeita.`)) {
+      await excluirParcelamento(uid, p.id);
+    }
+  }
 });
 
 function editarCategoriaInline(badge) {
@@ -119,10 +150,65 @@ function formatarCompetencia(competencia) {
   return `${nomesMeses[Number(mes) - 1]}/${ano}`;
 }
 
-function renderItem(p) {
+function formatarDataCurta(iso) {
+  if (!iso) return '—';
+  const [, mes, dia] = iso.split('-');
+  return `${dia}/${mes}`;
+}
+
+function renderFaturaDoMes() {
+  const el = document.getElementById('fatura-do-mes');
+  const fatura = faturasAtuais.find((f) => f.vencimento && f.vencimento.slice(0, 7) === mesAtualISO());
+
+  if (!fatura) {
+    el.innerHTML = '';
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="elevated-card resumo-limite-card">
+      <div class="painel-card-cabecalho">
+        <div>
+          <span class="resumo-limite-label">Fatura do cartão — vence ${formatarDataCurta(fatura.vencimento)}</span>
+          <span class="resumo-limite-valor" style="display:block; margin-top:4px;">${formatarMoeda(fatura.valorTotal)}</span>
+        </div>
+        <button id="btn-fatura-paga" class="${fatura.paga ? 'btn-secondary' : 'btn-primary'}" type="button">
+          ${fatura.paga ? 'Paga ✓ — desmarcar' : 'Marcar como paga'}
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('btn-fatura-paga').onclick = async () => {
+    if (!uid) return;
+    await marcarFaturaPaga(uid, fatura.id, !fatura.paga);
+  };
+}
+
+function renderItem(p, faltando) {
   const saldoDevedor = Math.round((p.parcelaTotal - p.parcelaAtual) * p.valorParcela * 100) / 100;
   const progresso = Math.round((p.parcelaAtual / p.parcelaTotal) * 100);
   const categoria = categoriaResolvida(overridesCompras, p.descricao, p.categoria);
+
+  // Se a projeção de quitação já ficou no passado e a compra continua "ativa",
+  // nenhuma fatura recente trouxe essa compra de novo. Na maioria dos casos
+  // isso é porque falta importar uma fatura entre a última que essa compra
+  // apareceu e a mais recente já importada (o número de parcela fica preso
+  // esperando a fatura que faltou) — só quando NÃO há nenhuma fatura faltando
+  // nesse intervalo é que sobra a explicação de "foi paga/cancelada fora do
+  // cartão", caso em que faz sentido o usuário decidir manualmente.
+  const parada = !p.quitado && p.mesQuitacaoEstimado && p.mesQuitacaoEstimado < mesAtualISO();
+  const faltaFaturaNoIntervalo = parada && faltando.some((m) => m > p.ultimaCompetencia);
+
+  let avisoHTML = '';
+  if (faltaFaturaNoIntervalo) {
+    avisoHTML = `<div class="parcela-aviso-parada">Não aparece em fatura desde ${formatarCompetencia(p.ultimaCompetencia)} — provavelmente porque falta importar uma fatura (veja o aviso no topo da página).</div>`;
+  } else if (parada) {
+    avisoHTML = `<div class="parcela-aviso-parada">Não aparece em fatura desde ${formatarCompetencia(p.ultimaCompetencia)} — pode já ter sido paga ou cancelada fora do cartão.
+        <button class="link-acao" data-quitar-id="${p.id}" type="button">Marcar como quitado</button> ·
+        <button class="link-acao link-acao-perigo" data-excluir-id="${p.id}" type="button">Excluir</button>
+      </div>`;
+  }
 
   return `
     <div class="elevated-card parcela-item ${p.quitado ? 'quitado' : ''}">
@@ -134,6 +220,7 @@ function renderItem(p) {
         <div class="parcela-detalhe">
           Parcela ${p.parcelaAtual}/${p.parcelaTotal} · ${p.quitado ? 'Quitado' : `Quita em ${formatarCompetencia(p.mesQuitacaoEstimado)}`}
         </div>
+        ${avisoHTML}
         <div class="progresso-barra">
           <div class="progresso-preenchido" style="width:${progresso}%;"></div>
         </div>
@@ -142,6 +229,23 @@ function renderItem(p) {
         <div class="valor-parcela">${formatarMoeda(p.valorParcela)}</div>
         <div class="saldo-devedor">${p.quitado ? 'Sem saldo restante' : `Restam ${formatarMoeda(saldoDevedor)}`}</div>
       </div>
+    </div>
+  `;
+}
+
+function renderAvisoFaturasFaltando() {
+  const avisoEl = document.getElementById('aviso-faturas-faltando');
+  const faltando = encontrarFaturasFaltando(faturasAtuais);
+
+  if (faltando.length === 0) {
+    avisoEl.innerHTML = '';
+    return;
+  }
+
+  const meses = faltando.map(formatarCompetencia).join(', ');
+  avisoEl.innerHTML = `
+    <div class="elevated-card aviso-duplicatas">
+      <span>Faltam faturas com compras de: ${meses}. Sem elas, os parcelamentos que terminam nesses meses ficam com o número de parcela desatualizado. Importe essas faturas em "Importar fatura" pra corrigir.</span>
     </div>
   `;
 }
@@ -218,6 +322,7 @@ function renderAvisoDuplicatas(parcelamentos) {
 function renderizar(parcelamentos) {
   parcelamentosAtuais = parcelamentos;
   renderResumoLimite();
+  renderAvisoFaturasFaltando();
   renderAvisoDuplicatas(parcelamentos);
   const lista = document.getElementById('lista-parcelamentos');
 
@@ -226,6 +331,7 @@ function renderizar(parcelamentos) {
     return;
   }
 
+  const faltando = encontrarFaturasFaltando(faturasAtuais);
   const ativos = parcelamentos
     .filter((p) => !p.quitado)
     .sort((a, b) => (a.mesQuitacaoEstimado || '').localeCompare(b.mesQuitacaoEstimado || ''));
@@ -235,11 +341,11 @@ function renderizar(parcelamentos) {
 
   let html = '';
   html += '<p class="secao-titulo">Ativos</p>';
-  html += ativos.length ? ativos.map(renderItem).join('') : '<p class="vazio">Nenhum parcelamento ativo.</p>';
+  html += ativos.length ? ativos.map((p) => renderItem(p, faltando)).join('') : '<p class="vazio">Nenhum parcelamento ativo.</p>';
 
   if (quitados.length) {
     html += '<p class="secao-titulo">Quitados</p>';
-    html += quitados.map(renderItem).join('');
+    html += quitados.map((p) => renderItem(p, faltando)).join('');
   }
 
   lista.innerHTML = html;
@@ -265,7 +371,9 @@ onAuthChange(async (user) => {
 
   ouvirFaturas(uid, (novasFaturas) => {
     faturasAtuais = novasFaturas;
+    renderFaturaDoMes();
     renderResumoLimite();
+    renderizar(parcelamentosAtuais);
   });
 
   ouvirCategoriasCompras(uid, (novosOverrides) => {

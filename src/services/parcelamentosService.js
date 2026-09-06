@@ -58,6 +58,14 @@ export async function mesclarDuplicata(uid, grupo) {
   }
 }
 
+export async function marcarQuitadoManual(uid, parcelamentoId) {
+  await updateDoc(doc(parcelamentosRef(uid), parcelamentoId), { quitado: true });
+}
+
+export async function excluirParcelamento(uid, parcelamentoId) {
+  await deleteDoc(doc(parcelamentosRef(uid), parcelamentoId));
+}
+
 export async function mesclarParcelas(uid, fatura) {
   const transacoesParceladas = fatura.transacoes.filter((t) => t.parcelaTotal);
   if (transacoesParceladas.length === 0) return;

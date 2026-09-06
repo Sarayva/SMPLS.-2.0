@@ -14,7 +14,13 @@ import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategorias
 import { categorizar } from '../services/categorizacaoService.js';
 import { buscarContas, marcarPago, mesAtualISO, statusConta } from '../services/contasService.js';
 import { buscarExtratoPorPeriodo, excluirExtrato, salvarExtrato } from '../services/extratosService.js';
-import { buscarFaturaPorCompetencia, excluirFatura, salvarFatura } from '../services/faturasService.js';
+import {
+  buscarFaturaPorCompetencia,
+  encontrarFaturasFaltando,
+  excluirFatura,
+  ouvirFaturas,
+  salvarFatura,
+} from '../services/faturasService.js';
 import { mesclarParcelas } from '../services/parcelamentosService.js';
 import { extrairLinhas } from '../services/pdfService.js';
 import { buscarNomesFamilia } from '../services/familiaService.js';
@@ -41,6 +47,7 @@ const pronto = new Promise((resolve) => {
 let filaArquivos = [];
 let indiceFila = 0;
 let resumoImportacao = [];
+let faturasConhecidas = [];
 
 function nomesFamiliaConhecidos() {
   return [...new Set([...nomesFamiliaCadastrados, ...nomesTitulares])];
@@ -61,6 +68,7 @@ app.innerHTML = `
       </div>
     </div>
 
+    <div id="aviso-faturas-faltando"></div>
     <div id="conteudo"></div>
     </div>
     </main>
@@ -70,6 +78,30 @@ app.innerHTML = `
 ligarSidebar();
 
 const conteudo = document.getElementById('conteudo');
+
+function atualizarAvisoFaturasFaltando() {
+  const avisoEl = document.getElementById('aviso-faturas-faltando');
+  const faltando = encontrarFaturasFaltando(faturasConhecidas);
+
+  if (faltando.length === 0) {
+    avisoEl.innerHTML = '';
+    return;
+  }
+
+  const nomesMeses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const meses = faltando
+    .map((c) => {
+      const [ano, mes] = c.split('-');
+      return `${nomesMeses[Number(mes) - 1]}/${ano}`;
+    })
+    .join(', ');
+
+  avisoEl.innerHTML = `
+    <div class="elevated-card aviso-duplicatas">
+      <span>Faltam faturas com compras de: ${meses}. Sem essas faturas, compras parceladas que terminam nesses meses ficam com o número de parcela desatualizado até você importar a fatura que falta.</span>
+    </div>
+  `;
+}
 
 function formatarMoeda(valor) {
   if (valor == null) return '—';
@@ -238,6 +270,14 @@ function renderPreview(fatura) {
     campo.onchange = () => {
       fatura.transacoes[Number(campo.dataset.indiceTransacao)].categoria = campo.value.trim();
     };
+    campo.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const indice = Number(campo.dataset.indiceTransacao);
+      const proximo = conteudo.querySelector(`input[data-indice-transacao="${indice + 1}"]`);
+      if (proximo) proximo.focus();
+      else campo.blur();
+    });
   });
 
   document.getElementById('btn-cancelar').onclick = () => {
@@ -707,4 +747,9 @@ onAuthChange(async (user) => {
   nomesTitulares = await listarNomesTitulares(uid);
   nomesFamiliaCadastrados = await buscarNomesFamilia(uid);
   resolverPronto();
+
+  ouvirFaturas(uid, (novasFaturas) => {
+    faturasConhecidas = novasFaturas;
+    atualizarAvisoFaturasFaltando();
+  });
 });

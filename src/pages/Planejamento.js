@@ -72,34 +72,40 @@ function calcularProjecao(mes, mediaGastoCartao) {
   const contasSemValor = contasAtivas.filter((c) => c.valor == null);
   const totalContasFixas = contasComValor.reduce((s, c) => s + c.valor, 0);
 
-  const parcelasAtivas = parcelamentos.filter((p) => !p.quitado && p.mesQuitacaoEstimado >= mes);
-  const totalParcelas = parcelasAtivas.reduce((s, p) => s + p.valorParcela, 0);
   const parcelasQueTerminam = parcelamentos.filter((p) => !p.quitado && p.mesQuitacaoEstimado === mes);
 
   const rendaTotal = rendas.filter((r) => r.ativa !== false).reduce((s, r) => s + r.valor, 0);
 
-  const faturaDoMes = faturas.find((f) => f.competencia === mes);
-  const gastoVariavelReal = faturaDoMes
-    ? (faturaDoMes.transacoes || []).filter((t) => !t.parcelaTotal).reduce((s, t) => s + t.valor, 0)
-    : null;
-  const gastoVariavel = gastoVariavelReal ?? mediaGastoCartao.media;
+  // O que você paga em "mes" é a fatura que VENCE em "mes", não a que tem
+  // compras feitas em "mes" (competência) — uma fatura vence, em geral, no
+  // mês seguinte ao das compras.
+  const faturaDoMes = faturas.find((f) => f.vencimento && f.vencimento.slice(0, 7) === mes);
 
   // Encargos (juros, multa, IOF...) só entram quando já existe a fatura real
   // do mês — não dá pra estimar isso com uma média, porque é evitável e
   // errático (não é um padrão de gasto).
   const totalEncargos = faturaDoMes ? (faturaDoMes.encargos || []).reduce((s, e) => s + e.valor, 0) : 0;
 
-  const totalDasContas = totalContasFixas + gastoVariavel + totalParcelas + totalEncargos;
+  // Quando já existe a fatura real do mês, usa o total exato dela (à vista +
+  // parcelas). Em meses futuros, em vez de somar só "gasto à vista médio" +
+  // "as parcelas que já sabemos que continuam" (o que faz a projeção cair
+  // mês a mês conforme parcelas antigas terminam, ignorando que parcelas e
+  // compras novas tendem a ocupar o lugar delas), usa a mediana do TOTAL das
+  // faturas anteriores — reflete melhor o padrão real de gasto no cartão.
+  const totalCartao = faturaDoMes
+    ? (faturaDoMes.transacoes || []).reduce((s, t) => s + t.valor, 0)
+    : mediaGastoCartao.media;
+
+  const totalDasContas = totalContasFixas + totalCartao + totalEncargos;
   const saldoProjetado = rendaTotal - totalDasContas;
 
   return {
     rendaTotal,
     totalContasFixas,
     contasSemValor,
-    totalParcelas,
-    parcelasAtivas,
     parcelasQueTerminam,
-    gastoVariavel,
+    totalCartao,
+    ehFaturaReal: Boolean(faturaDoMes),
     totalEncargos,
     totalDasContas,
     saldoProjetado,
@@ -139,8 +145,7 @@ function renderizar() {
           </thead>
           <tbody>
             ${linhaMoeda('Contas fixas', (p) => p.totalContasFixas)}
-            ${linhaMoeda('Gastos médios (cartão)', (p) => p.gastoVariavel)}
-            ${linhaMoeda('Parcelas de cartão', (p) => p.totalParcelas)}
+            ${linhaMoeda('Fatura do cartão', (p) => p.totalCartao)}
             ${temEncargos ? linhaMoeda('Encargos e juros', (p) => p.totalEncargos) : ''}
             ${linhaMoeda('Total das contas', (p) => p.totalDasContas, { destaque: true })}
             ${linhaMoeda('Renda esperada', (p) => p.rendaTotal)}
@@ -155,8 +160,8 @@ function renderizar() {
       }
       ${
         mediaGastoCartao.quantidadeFaturas > 0
-          ? `<p class="planejamento-nota">"Gastos médios (cartão)" é uma estimativa de compras à vista/avulsas no cartão, baseada em ${mediaGastoCartao.quantidadeFaturas} fatura(s) importada(s). Quando já existe fatura real de um mês, o valor real é usado no lugar da média.</p>`
-          : `<p class="planejamento-nota">"Gastos médios (cartão)" ainda está zerado — importe faturas em "Importar fatura" pra essa estimativa começar a valer.</p>`
+          ? `<p class="planejamento-nota">"Fatura do cartão" é o valor exato da fatura já importada daquele mês (compras à vista + parcelas). Em meses futuros, sem fatura ainda, é uma estimativa: mediana de compras à vista/avulsas de ${mediaGastoCartao.quantidadeFaturas} fatura(s) importada(s) + as parcelas já sabidas que continuam ativas naquele mês.</p>`
+          : `<p class="planejamento-nota">"Fatura do cartão" ainda está zerada nos meses futuros — importe faturas em "Importar fatura" pra essa estimativa começar a valer.</p>`
       }
       ${
         temEncargos

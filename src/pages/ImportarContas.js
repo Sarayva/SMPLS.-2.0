@@ -161,9 +161,9 @@ async function confirmarImportacao() {
   }
 
   const selecionadas = marcadas.map((i) => contasExtraidas[i]);
-  const invalida = selecionadas.find((c) => !c.nome || !c.categoria || !c.valor || !c.diaVencimento);
+  const invalida = selecionadas.find((c) => !c.nome || !c.categoria || !c.valor);
   if (invalida) {
-    mensagemEl.innerHTML = `<p style="color:var(--danger); font-weight:600;">Preencha nome, categoria, valor e dia de vencimento de "${escapeHTML(invalida.nome || invalida.nomeOriginal)}" antes de importar.</p>`;
+    mensagemEl.innerHTML = `<p style="color:var(--danger); font-weight:600;">Preencha nome, categoria e valor de "${escapeHTML(invalida.nome || invalida.nomeOriginal)}" antes de importar.</p>`;
     return;
   }
 

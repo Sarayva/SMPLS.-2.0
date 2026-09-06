@@ -78,7 +78,13 @@ export function calcularGastosPorMeses(contas, faturas, extratos, nomesFamilia, 
       somar(conta.categoria, valor);
     }
 
-    for (const fatura of faturas.filter((f) => f.competencia === mes)) {
+    // "Despesas do mês" é o que você deve pagar naquele mês: contas fixas +
+    // a fatura do cartão que VENCE nesse mês — não a fatura cuja competência
+    // (mês das compras) é esse mês. Uma fatura que vence em setembro tem
+    // competência agosto (a maioria das compras nela foi feita em agosto),
+    // então filtrar por competência deixava "despesas de setembro" sempre
+    // zerada até a fatura de outubro (competência setembro) ser importada.
+    for (const fatura of faturas.filter((f) => f.vencimento && f.vencimento.slice(0, 7) === mes)) {
       for (const transacao of fatura.transacoes || []) {
         somar(categoriaResolvida(overridesCompras, transacao.descricao, transacao.categoria), transacao.valor);
       }
@@ -120,7 +126,7 @@ export function itensDasCategorias(contas, faturas, extratos, nomesFamilia, cate
       });
     }
 
-    for (const fatura of faturas.filter((f) => f.competencia === mes)) {
+    for (const fatura of faturas.filter((f) => f.vencimento && f.vencimento.slice(0, 7) === mes)) {
       (fatura.transacoes || []).forEach((transacao) => {
         const categoria = categoriaResolvida(overridesCompras, transacao.descricao, transacao.categoria);
         if (!transacao.valor || !categorias.includes(categoria)) return;
@@ -168,14 +174,26 @@ export function itensDasCategorias(contas, faturas, extratos, nomesFamilia, cate
   return itens.sort((a, b) => b.valor - a.valor);
 }
 
+// Usa o total inteiro de cada fatura passada (à vista + parcelas, sem os
+// encargos — esses são mostrados à parte por serem evitáveis/erráticos), não
+// só a parte à vista. Parcelas que terminam num mês futuro tendem a ser
+// substituídas por compras e parcelamentos novos que ainda não existem nos
+// dados — projetar só "o que já sabemos que vai continuar" faz o gasto do
+// cartão parecer cair mês a mês de um jeito que não reflete a realidade.
 export function calcularMediaGastoCartao(faturas) {
   const totaisPorFatura = faturas
-    .filter((f) => f.competencia && Array.isArray(f.transacoes))
-    .map((f) => f.transacoes.filter((t) => !t.parcelaTotal).reduce((s, t) => s + t.valor, 0));
+    .filter((f) => f.competencia && typeof f.valorTotal === 'number')
+    .map((f) => f.valorTotal - (f.encargos || []).reduce((s, e) => s + e.valor, 0));
 
   if (totaisPorFatura.length === 0) return { media: 0, quantidadeFaturas: 0 };
 
-  const media = totaisPorFatura.reduce((s, v) => s + v, 0) / totaisPorFatura.length;
+  // Mediana, não média aritmética — um mês com uma compra grande e pontual
+  // (um eletrônico, um móvel) não deve puxar a estimativa de todo mês pra
+  // cima só porque aconteceu uma vez.
+  const ordenados = [...totaisPorFatura].sort((a, b) => a - b);
+  const meio = Math.floor(ordenados.length / 2);
+  const media = ordenados.length % 2 === 0 ? (ordenados[meio - 1] + ordenados[meio]) / 2 : ordenados[meio];
+
   return { media, quantidadeFaturas: totaisPorFatura.length };
 }
 
