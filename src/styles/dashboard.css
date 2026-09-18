@@ -138,6 +138,13 @@
   color: #fff;
 }
 
+.conta-uniao-check {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+
 .conta-info {
   flex: 1;
   min-width: 0;

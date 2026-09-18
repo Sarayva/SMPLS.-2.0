@@ -2,7 +2,7 @@ import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components
 import { onAuthChange } from '../firebase/auth.js';
 import { parseContasCsv } from '../parsers/contasCsv.js';
 import { PADRAO_CONTAS, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
-import { salvarConta } from '../services/contasService.js';
+import { buscarContas, importarHistoricoPagamentos, salvarConta } from '../services/contasService.js';
 import { icones } from '../services/icones.js';
 import { escapeHTML } from '../services/securityService.js';
 import { initTheme } from '../services/themeService.js';
@@ -12,6 +12,18 @@ initTheme();
 let uid = null;
 let categoriasContas = [];
 let contasExtraidas = [];
+let contasExistentes = [];
+let dadosProntos = false;
+
+function normalizarNome(nome) {
+  return nome.trim().toLowerCase();
+}
+
+function formatarMesCurto(mesISO) {
+  const [ano, mes] = mesISO.split('-');
+  const nomes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  return `${nomes[Number(mes) - 1]}/${ano.slice(2)}`;
+}
 
 const app = document.getElementById('app');
 
@@ -95,15 +107,33 @@ function renderPreview() {
       const avisos = [];
       if (c.pareceCartao) avisos.push('parece ser a fatura do cartão — deixei desmarcada');
       if (c.pareceTemporaria) avisos.push('os valores somem antes do fim da planilha — pode ser parcela terminando');
+      if (c.mesesNaoIdentificados > 0) {
+        avisos.push(`não reconheci ${c.mesesNaoIdentificados} coluna(s) de mês — esses valores não vão virar histórico, só contam pro valor mais recente`);
+      }
+
+      const existente = contasExistentes.find((e) => normalizarNome(e.nome) === normalizarNome(c.nome));
+      const tagVinculo = existente
+        ? `<span class="conta-import-tag conta-import-tag-atualiza">Atualiza "${escapeHTML(existente.nome)}"</span>`
+        : `<span class="conta-import-tag conta-import-tag-nova">Nova conta</span>`;
+
+      const historicoHTML = c.historico.length
+        ? `<div class="conta-import-historico">Histórico: ${c.historico
+            .map((h) => `${formatarMesCurto(h.mesISO)} ${formatarMoeda(h.valor)}`)
+            .join(' · ')}</div>`
+        : '';
 
       return `
         <div class="conta-import-item">
           <input type="checkbox" class="conta-import-check" data-indice="${indice}" ${c.pareceCartao ? '' : 'checked'}>
           <div class="conta-import-campos">
+            <div class="conta-import-campos-linha">
+              ${tagVinculo}
+            </div>
             <input type="text" class="conta-import-nome" data-indice="${indice}" value="${escapeHTML(c.nome)}" placeholder="Nome">
             <input type="text" class="conta-import-categoria" data-indice="${indice}" list="lista-categorias-import" value="${escapeHTML(c.categoria)}" placeholder="Categoria">
             <input type="number" class="conta-import-valor" data-indice="${indice}" value="${c.valor ?? ''}" step="0.01" min="0" placeholder="Valor">
             <input type="number" class="conta-import-dia" data-indice="${indice}" value="${c.diaVencimento ?? ''}" min="1" max="31" placeholder="Dia">
+            ${historicoHTML}
           </div>
           ${avisos.length ? `<span class="conta-import-aviso" title="${escapeHTML(avisos.join(' · '))}">${icones.alerta}</span>` : '<span class="conta-import-aviso-vazio"></span>'}
         </div>
@@ -125,7 +155,9 @@ function renderPreview() {
 
       <div class="fatura-acoes">
         <button id="btn-cancelar" class="btn-secondary" type="button">Cancelar</button>
-        <button id="btn-confirmar" class="btn-primary" type="button">Importar selecionadas</button>
+        <button id="btn-confirmar" class="btn-primary" type="button" ${dadosProntos ? '' : 'disabled'}>
+          ${dadosProntos ? 'Importar selecionadas' : 'Carregando suas contas...'}
+        </button>
       </div>
       <div id="import-mensagem" class="fatura-mensagem"></div>
     </div>
@@ -151,7 +183,7 @@ function renderPreview() {
 }
 
 async function confirmarImportacao() {
-  if (!uid) return;
+  if (!uid || !dadosProntos) return;
   const mensagemEl = document.getElementById('import-mensagem');
   const marcadas = Array.from(document.querySelectorAll('.conta-import-check:checked')).map((c) => Number(c.dataset.indice));
 
@@ -179,16 +211,25 @@ async function confirmarImportacao() {
     }
 
     for (const conta of selecionadas) {
-      await salvarConta(uid, {
-        nome: conta.nome,
-        categoria: conta.categoria,
-        valorVariavel: false,
-        valor: conta.valor,
-        diaVencimento: conta.diaVencimento,
-        observacoes: '',
-      });
+      const existente = contasExistentes.find((e) => normalizarNome(e.nome) === normalizarNome(conta.nome));
+      const contaId = await salvarConta(
+        uid,
+        {
+          nome: conta.nome,
+          categoria: conta.categoria,
+          valorVariavel: false,
+          valor: conta.valor,
+          diaVencimento: conta.diaVencimento,
+          observacoes: existente?.observacoes ?? '',
+        },
+        existente?.id
+      );
+      if (conta.historico.length) {
+        await importarHistoricoPagamentos(uid, contaId, conta.historico, conta.diaVencimento, existente?.pagamentos);
+      }
     }
 
+    contasExistentes = await buscarContas(uid);
     mensagemEl.innerHTML = `<p style="color:var(--success); font-weight:600;">${selecionadas.length} conta(s) importada(s) com sucesso.</p>`;
     botao.textContent = 'Importado ✓';
   } catch (err) {
@@ -234,4 +275,11 @@ onAuthChange(async (user) => {
   atualizarPerfilSidebar(user.displayName);
   await garantirCategoriasPadrao(uid);
   categoriasContas = await buscarCategorias(uid, 'contas');
+  contasExistentes = await buscarContas(uid);
+  dadosProntos = true;
+
+  // Se o usuário já subiu o arquivo e a prévia apareceu antes dos dados
+  // carregarem, refaz a prévia agora pra liberar o botão e mostrar as tags
+  // "Nova conta"/"Atualiza" corretas.
+  if (contasExtraidas.length > 0) renderPreview();
 });

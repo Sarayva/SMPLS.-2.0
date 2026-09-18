@@ -11,6 +11,19 @@
   margin-top: 0;
 }
 
+.mes-titulo {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-sec);
+  opacity: 0.75;
+  margin: 16px 0 8px;
+  padding-left: 2px;
+}
+
+.mes-titulo:first-of-type {
+  margin-top: 4px;
+}
+
 .parcela-item {
   display: flex;
   align-items: center;

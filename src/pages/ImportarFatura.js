@@ -12,7 +12,7 @@ import {
 } from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { categorizar } from '../services/categorizacaoService.js';
-import { buscarContas, marcarPago, mesAtualISO, statusConta } from '../services/contasService.js';
+import { buscarContas, marcarPago, mesAtualISO, statusConta, valorEsperado } from '../services/contasService.js';
 import { buscarExtratoPorPeriodo, excluirExtrato, salvarExtrato } from '../services/extratosService.js';
 import {
   buscarFaturaPorCompetencia,
@@ -504,7 +504,7 @@ function anotarLancamentos(extrato) {
     if (vinculado && contasNaoPagas.some((c) => c.id === vinculado)) {
       l.contaFixaSugerida = vinculado;
     } else {
-      const porValor = contasNaoPagas.find((c) => c.valor != null && Math.abs(c.valor - l.valor) < 0.01);
+      const porValor = contasNaoPagas.find((c) => valorEsperado(c, mes) != null && Math.abs(valorEsperado(c, mes) - l.valor) < 0.01);
       l.contaFixaSugerida = porValor ? porValor.id : null;
     }
     l.categoria = categoriaResolvida(overridesCompras, l.contraparte, categorizar(l.contraparte));

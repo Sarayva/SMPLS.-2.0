@@ -44,12 +44,18 @@ export async function mesclarDuplicata(uid, grupo) {
   const competencias = grupo.map((p) => p.ultimaCompetencia).filter(Boolean).sort();
   const ultimaCompetencia = competencias[competencias.length - 1];
   const primeiraCompetencia = grupo.map((p) => p.primeiraCompetencia).filter(Boolean).sort()[0];
+  // Mesmo esquema do backfill em corrigirMesesQuitacao: quita-se no mês em
+  // que a última parcela é paga (vencimento), não no mês em que a compra foi
+  // feita (competência) — usa o vencimento já salvo no vencedor e, na falta
+  // dele (registro legado), aproxima por competência + 1 mês.
+  const ultimoVencimento = grupo.map((p) => p.ultimoVencimento).filter(Boolean).sort().pop() || somarMeses(ultimaCompetencia, 1);
 
   await updateDoc(doc(parcelamentosRef(uid), vencedor.id), {
     parcelaAtual,
     primeiraCompetencia,
     ultimaCompetencia,
-    mesQuitacaoEstimado: somarMeses(ultimaCompetencia, vencedor.parcelaTotal - parcelaAtual),
+    ultimoVencimento,
+    mesQuitacaoEstimado: somarMeses(ultimoVencimento, vencedor.parcelaTotal - parcelaAtual),
     quitado: parcelaAtual >= vencedor.parcelaTotal,
   });
 
@@ -64,6 +70,31 @@ export async function marcarQuitadoManual(uid, parcelamentoId) {
 
 export async function excluirParcelamento(uid, parcelamentoId) {
   await deleteDoc(doc(parcelamentosRef(uid), parcelamentoId));
+}
+
+// Backfill único: parcelamentos salvos antes da correção acima guardaram
+// mesQuitacaoEstimado com base na competência (mês da compra) em vez do
+// vencimento (mês em que a última parcela é de fato paga) — ficavam um mês
+// adiantados. Corrige usando o vencimento real de cada fatura já importada
+// (mais preciso que aproximar por competência + 1 mês). Idempotente: não
+// escreve nada se o valor já estiver certo.
+export async function corrigirMesesQuitacao(uid, faturas) {
+  const vencimentoPorCompetencia = {};
+  for (const f of faturas) {
+    if (f.competencia && f.vencimento) vencimentoPorCompetencia[f.competencia] = f.vencimento.slice(0, 7);
+  }
+
+  const snapshot = await getDocs(parcelamentosRef(uid));
+  for (const docSnap of snapshot.docs) {
+    const p = docSnap.data();
+    const ultimoVencimento = vencimentoPorCompetencia[p.ultimaCompetencia];
+    if (!ultimoVencimento) continue;
+
+    const mesQuitacaoEstimado = somarMeses(ultimoVencimento, p.parcelaTotal - p.parcelaAtual);
+    if (p.ultimoVencimento === ultimoVencimento && p.mesQuitacaoEstimado === mesQuitacaoEstimado) continue;
+
+    await updateDoc(doc(parcelamentosRef(uid), docSnap.id), { ultimoVencimento, mesQuitacaoEstimado });
+  }
 }
 
 export async function mesclarParcelas(uid, fatura) {
@@ -89,7 +120,11 @@ export async function mesclarParcelas(uid, fatura) {
     );
 
     const parcelaAtual = existente ? Math.max(existente.parcelaAtual, transacao.parcelaAtual) : transacao.parcelaAtual;
-    const mesQuitacaoEstimado = somarMeses(fatura.competencia, transacao.parcelaTotal - parcelaAtual);
+    // A última parcela é paga no mês em que a fatura vence, não no mês em
+    // que a compra foi feita (competência) — uma compra de agosto que
+    // fecha em 2x quita na fatura que vence em outubro, não em setembro.
+    const ultimoVencimento = fatura.vencimento.slice(0, 7);
+    const mesQuitacaoEstimado = somarMeses(ultimoVencimento, transacao.parcelaTotal - parcelaAtual);
 
     const dados = {
       banco: fatura.banco,
@@ -103,6 +138,7 @@ export async function mesclarParcelas(uid, fatura) {
         ? existente.primeiraCompetencia
         : somarMeses(fatura.competencia, -(parcelaAtual - 1)),
       ultimaCompetencia: fatura.competencia,
+      ultimoVencimento,
       mesQuitacaoEstimado,
       quitado: parcelaAtual >= transacao.parcelaTotal,
       atualizadoEm: new Date().toISOString(),

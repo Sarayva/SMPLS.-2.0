@@ -2,7 +2,18 @@ import { abrirModalConta } from '../components/ContaModal.js';
 import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { PADRAO_CONTAS, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
-import { desmarcarPago, marcarPago, mesAtualISO, ouvirContas, salvarConta, statusConta } from '../services/contasService.js';
+import {
+  definirValorMensal,
+  desmarcarPago,
+  encontrarContasDuplicadas,
+  marcarPago,
+  mesAtualISO,
+  mesclarContasDuplicadas,
+  ouvirContas,
+  salvarConta,
+  statusConta,
+  valorEsperado,
+} from '../services/contasService.js';
 import { escapeHTML } from '../services/securityService.js';
 import { initTheme } from '../services/themeService.js';
 
@@ -14,6 +25,8 @@ let categoriasContas = [];
 let pararDeOuvir = null;
 let mesSelecionado = mesAtualISO();
 let proximoValorParaFocar = null;
+let modoUniao = false;
+let selecionadasParaUniao = new Set();
 
 const app = document.getElementById('app');
 
@@ -55,13 +68,18 @@ app.innerHTML = `
       </div>
     </div>
 
+    <div id="aviso-duplicatas"></div>
+
     <div class="lista-header">
       <h2>Suas contas</h2>
       <div style="display:flex; gap:8px;">
         <a href="/importar-contas.html" class="btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center;">Importar planilha</a>
+        <button id="btn-modo-uniao" class="btn-secondary" type="button">Unir contas</button>
         <button id="btn-nova-conta" class="btn-primary" type="button">+ Nova conta</button>
       </div>
     </div>
+
+    <div id="acoes-uniao"></div>
 
     <datalist id="lista-categorias-inline"></datalist>
 
@@ -79,7 +97,77 @@ function formatarMoeda(valor) {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
+function renderAvisoDuplicatas() {
+  const avisoEl = document.getElementById('aviso-duplicatas');
+  const duplicatas = encontrarContasDuplicadas(contas);
+
+  if (duplicatas.length === 0) {
+    avisoEl.innerHTML = '';
+    return;
+  }
+
+  avisoEl.innerHTML = `
+    <div class="elevated-card aviso-duplicatas">
+      <span>Encontrei ${duplicatas.length} conta(s) com o mesmo nome cadastradas mais de uma vez (pode ter sido uma importação de planilha repetida).</span>
+      <button id="btn-corrigir-contas-duplicadas" class="btn-secondary" type="button">Corrigir</button>
+    </div>
+  `;
+
+  document.getElementById('btn-corrigir-contas-duplicadas').onclick = async () => {
+    const nomes = duplicatas.map((grupo) => `"${grupo[0].nome}"`).join(', ');
+    if (!confirm(`Vou juntar essas contas em uma linha só, mantendo o histórico de pagamentos de todas elas: ${nomes}. Confirma?`)) return;
+
+    const botao = document.getElementById('btn-corrigir-contas-duplicadas');
+    botao.disabled = true;
+    botao.textContent = 'Corrigindo...';
+    for (const grupo of duplicatas) {
+      await mesclarContasDuplicadas(uid, grupo);
+    }
+  };
+}
+
+// Detecção automática só pega nome idêntico — quando a mesma conta foi
+// cadastrada com grafias diferentes (typo da planilha, nome abreviado), o
+// usuário precisa poder escolher manualmente quais juntar.
+function renderAcoesUniao() {
+  const el = document.getElementById('acoes-uniao');
+  if (!modoUniao) {
+    el.innerHTML = '';
+    return;
+  }
+
+  const podeUnir = selecionadasParaUniao.size >= 2;
+  el.innerHTML = `
+    <div class="elevated-card aviso-duplicatas">
+      <span>${
+        podeUnir
+          ? `${selecionadasParaUniao.size} conta(s) selecionada(s).`
+          : 'Marque duas ou mais contas na lista abaixo pra juntar numa só (útil quando a mesma conta foi cadastrada com nomes diferentes).'
+      }</span>
+      ${podeUnir ? '<button id="btn-confirmar-uniao" class="btn-primary" type="button">Unir selecionadas</button>' : ''}
+    </div>
+  `;
+
+  if (podeUnir) {
+    document.getElementById('btn-confirmar-uniao').onclick = async () => {
+      const grupo = contas.filter((c) => selecionadasParaUniao.has(c.id));
+      const nomes = grupo.map((c) => `"${c.nome}"`).join(', ');
+      if (!confirm(`Vou juntar essas contas em uma linha só, mantendo o histórico de pagamentos de todas elas: ${nomes}. Confirma?`)) return;
+
+      const botao = document.getElementById('btn-confirmar-uniao');
+      botao.disabled = true;
+      botao.textContent = 'Unindo...';
+      await mesclarContasDuplicadas(uid, grupo);
+      selecionadasParaUniao = new Set();
+      modoUniao = false;
+      renderizar();
+    };
+  }
+}
+
 function renderizar() {
+  renderAvisoDuplicatas();
+  renderAcoesUniao();
   const contasAtivas = contas.filter((c) => c.ativa !== false);
 
   let total = 0;
@@ -91,13 +179,14 @@ function renderizar() {
   for (const conta of contasAtivas) {
     const status = statusConta(conta, mesSelecionado);
     if (status === 'pago') {
-      const valorPago = conta.pagamentos?.[mesSelecionado]?.valorPago ?? conta.valor ?? 0;
+      const valorPago = conta.pagamentos?.[mesSelecionado]?.valorPago ?? valorEsperado(conta, mesSelecionado) ?? 0;
       total += valorPago;
       pago += valorPago;
     } else {
-      total += conta.valor ?? 0;
-      if (status === 'atrasado') atrasado += conta.valor ?? 0;
-      else pendente += conta.valor ?? 0;
+      const valor = valorEsperado(conta, mesSelecionado) ?? 0;
+      total += valor;
+      if (status === 'atrasado') atrasado += valor;
+      else pendente += valor;
     }
 
     if (!porCategoria[conta.categoria]) porCategoria[conta.categoria] = [];
@@ -143,23 +232,29 @@ function renderizar() {
 function renderConta(conta) {
   const status = statusConta(conta, mesSelecionado);
   const texto = { pago: 'Pago', pendente: 'Pendente', atrasado: 'Atrasado' }[status];
-  const valorEditavel = status !== 'pago' && conta.valor != null;
+  const valorDoMes = valorEsperado(conta, mesSelecionado);
+  const valorEditavel = status !== 'pago' && valorDoMes != null;
 
   let valorTexto;
   if (status === 'pago') {
-    valorTexto = formatarMoeda(conta.pagamentos?.[mesSelecionado]?.valorPago ?? conta.valor ?? 0);
-  } else if (conta.valor == null) {
+    valorTexto = formatarMoeda(conta.pagamentos?.[mesSelecionado]?.valorPago ?? valorDoMes ?? 0);
+  } else if (valorDoMes == null) {
     valorTexto = 'Valor a definir';
   } else {
-    valorTexto = formatarMoeda(conta.valor);
+    valorTexto = formatarMoeda(valorDoMes);
   }
 
   const valorHTML = valorEditavel
     ? `<span class="conta-valor conta-valor-editavel" data-valor-conta-id="${conta.id}" title="Clique para editar">${valorTexto}</span>`
     : `<span class="conta-valor">${valorTexto}</span>`;
 
+  const checkboxUniao = modoUniao
+    ? `<input type="checkbox" class="conta-uniao-check" data-uniao-id="${conta.id}" ${selecionadasParaUniao.has(conta.id) ? 'checked' : ''}>`
+    : '';
+
   return `
     <div class="elevated-card conta-item">
+      ${checkboxUniao}
       <button class="conta-check ${status === 'pago' ? 'pago' : ''}" data-id="${conta.id}" title="Marcar pago/pendente">
         ${status === 'pago' ? '✓' : ''}
       </button>
@@ -234,11 +329,13 @@ function editarValorContaInline(spanEl) {
   const proximoEl = itens[idxAtual + 1];
   const proximoContaId = proximoEl ? proximoEl.dataset.valorContaId : null;
 
+  const valorAtualDoMes = valorEsperado(conta, mesSelecionado);
+
   const campo = document.createElement('input');
   campo.type = 'number';
   campo.step = '0.01';
   campo.min = '0';
-  campo.value = conta.valor;
+  campo.value = valorAtualDoMes;
   campo.className = 'campo-valor-inline';
   spanEl.replaceWith(campo);
   campo.focus();
@@ -249,11 +346,13 @@ function editarValorContaInline(spanEl) {
     if (resolvido) return;
     resolvido = true;
     const novo = Number(campo.value);
-    const mudou = Number.isFinite(novo) && novo >= 0 && novo !== conta.valor;
+    const mudou = Number.isFinite(novo) && novo >= 0 && novo !== valorAtualDoMes;
 
     if (mudou) {
       proximoValorParaFocar = avancarPara;
-      await salvarConta(uid, { valor: novo }, conta.id);
+      // Grava só no mês em que você está — nunca no valor padrão da conta,
+      // pra não vazar pra outros meses (passados ou futuros).
+      await definirValorMensal(uid, conta.id, mesSelecionado, novo);
     } else if (avancarPara) {
       renderizar();
       const el = document.querySelector(`.conta-valor-editavel[data-valor-conta-id="${avancarPara}"]`);
@@ -299,8 +398,26 @@ document.getElementById('btn-nova-conta').onclick = async () => {
   abrirModalConta(uid, null, categoriasContas);
 };
 
+document.getElementById('btn-modo-uniao').onclick = () => {
+  modoUniao = !modoUniao;
+  selecionadasParaUniao = new Set();
+  document.getElementById('btn-modo-uniao').textContent = modoUniao ? 'Cancelar seleção' : 'Unir contas';
+  renderizar();
+};
+
 document.getElementById('lista-contas').addEventListener('click', async (e) => {
   if (!uid) return;
+
+  if (modoUniao) {
+    const checkboxUniao = e.target.closest('[data-uniao-id]');
+    if (checkboxUniao) {
+      const id = checkboxUniao.dataset.uniaoId;
+      if (selecionadasParaUniao.has(id)) selecionadasParaUniao.delete(id);
+      else selecionadasParaUniao.add(id);
+      renderizar();
+    }
+    return;
+  }
 
   const badgeCategoria = e.target.closest('[data-categoria-conta-id]');
   if (badgeCategoria) {
@@ -330,7 +447,7 @@ document.getElementById('lista-contas').addEventListener('click', async (e) => {
       }
       await marcarPago(uid, conta.id, mesSelecionado, valor);
     } else {
-      await marcarPago(uid, conta.id, mesSelecionado, conta.valor);
+      await marcarPago(uid, conta.id, mesSelecionado, valorEsperado(conta, mesSelecionado));
     }
     return;
   }

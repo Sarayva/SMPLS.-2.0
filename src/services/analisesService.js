@@ -1,5 +1,5 @@
 import { categoriaResolvida } from './categoriasComprasService.js';
-import { statusConta } from './contasService.js';
+import { statusConta, valorEsperado } from './contasService.js';
 import { pareceSerAMesmaPessoa } from './titularesService.js';
 
 const TIPOS_TRANSFERENCIA = ['pix_enviado', 'pix_recebido', 'transferencia_enviada', 'transferencia_recebida', 'reembolso'];
@@ -74,7 +74,7 @@ export function calcularGastosPorMeses(contas, faturas, extratos, nomesFamilia, 
 
     for (const conta of contas.filter((c) => c.ativa !== false)) {
       const status = statusConta(conta, mes);
-      const valor = status === 'pago' ? conta.pagamentos?.[mes]?.valorPago ?? conta.valor ?? 0 : conta.valor ?? 0;
+      const valor = status === 'pago' ? conta.pagamentos?.[mes]?.valorPago ?? valorEsperado(conta, mes) ?? 0 : valorEsperado(conta, mes) ?? 0;
       somar(conta.categoria, valor);
     }
 
@@ -113,7 +113,7 @@ export function itensDasCategorias(contas, faturas, extratos, nomesFamilia, cate
   for (const mes of meses) {
     for (const conta of contas.filter((c) => c.ativa !== false && categorias.includes(c.categoria))) {
       const status = statusConta(conta, mes);
-      const valor = status === 'pago' ? conta.pagamentos?.[mes]?.valorPago ?? conta.valor ?? 0 : conta.valor ?? 0;
+      const valor = status === 'pago' ? conta.pagamentos?.[mes]?.valorPago ?? valorEsperado(conta, mes) ?? 0 : valorEsperado(conta, mes) ?? 0;
       if (!valor) continue;
       itens.push({
         tipo: 'conta',
@@ -174,27 +174,27 @@ export function itensDasCategorias(contas, faturas, extratos, nomesFamilia, cate
   return itens.sort((a, b) => b.valor - a.valor);
 }
 
-// Usa o total inteiro de cada fatura passada (à vista + parcelas, sem os
-// encargos — esses são mostrados à parte por serem evitáveis/erráticos), não
-// só a parte à vista. Parcelas que terminam num mês futuro tendem a ser
-// substituídas por compras e parcelamentos novos que ainda não existem nos
-// dados — projetar só "o que já sabemos que vai continuar" faz o gasto do
-// cartão parecer cair mês a mês de um jeito que não reflete a realidade.
-export function calcularMediaGastoCartao(faturas) {
-  const totaisPorFatura = faturas
-    .filter((f) => f.competencia && typeof f.valorTotal === 'number')
-    .map((f) => f.valorTotal - (f.encargos || []).reduce((s, e) => s + e.valor, 0));
+// Só a parte à vista/avulsa de cada fatura passada (as parcelas ficam de
+// fora daqui de propósito). Em meses futuros, o que já se sabe com certeza
+// que vai continuar (parcelamentos ativos) é somado à parte, valor exato —
+// só a compra nova/avulsa (que ninguém consegue prever) precisa de uma
+// estimativa. Misturar as duas coisas numa única mediana do total fazia a
+// projeção ficar cega às parcelas reais que terminam mês a mês.
+export function calcularMedianaGastoAvista(faturas) {
+  const totaisAvista = faturas
+    .filter((f) => f.competencia && Array.isArray(f.transacoes))
+    .map((f) => f.transacoes.filter((t) => !t.parcelaTotal).reduce((s, t) => s + t.valor, 0));
 
-  if (totaisPorFatura.length === 0) return { media: 0, quantidadeFaturas: 0 };
+  if (totaisAvista.length === 0) return { mediana: 0, quantidadeFaturas: 0 };
 
   // Mediana, não média aritmética — um mês com uma compra grande e pontual
   // (um eletrônico, um móvel) não deve puxar a estimativa de todo mês pra
   // cima só porque aconteceu uma vez.
-  const ordenados = [...totaisPorFatura].sort((a, b) => a - b);
+  const ordenados = [...totaisAvista].sort((a, b) => a - b);
   const meio = Math.floor(ordenados.length / 2);
-  const media = ordenados.length % 2 === 0 ? (ordenados[meio - 1] + ordenados[meio]) / 2 : ordenados[meio];
+  const mediana = ordenados.length % 2 === 0 ? (ordenados[meio - 1] + ordenados[meio]) / 2 : ordenados[meio];
 
-  return { media, quantidadeFaturas: totaisPorFatura.length };
+  return { mediana, quantidadeFaturas: totaisAvista.length };
 }
 
 export function somarCategorias(...mapas) {

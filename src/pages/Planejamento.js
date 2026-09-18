@@ -1,7 +1,7 @@
 import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
-import { calcularMediaGastoCartao } from '../services/analisesService.js';
-import { mesAtualISO, ouvirContas } from '../services/contasService.js';
+import { calcularMedianaGastoAvista } from '../services/analisesService.js';
+import { mesAtualISO, ouvirContas, valorEsperado } from '../services/contasService.js';
 import { ouvirFaturas } from '../services/faturasService.js';
 import { ouvirParcelamentos } from '../services/parcelamentosService.js';
 import { ouvirRendas } from '../services/rendaService.js';
@@ -66,13 +66,21 @@ function proximosMeses(qtd) {
   return meses;
 }
 
-function calcularProjecao(mes, mediaGastoCartao) {
+function calcularProjecao(mes, medianaGastoAvista) {
   const contasAtivas = contas.filter((c) => c.ativa !== false);
-  const contasComValor = contasAtivas.filter((c) => c.valor != null);
-  const contasSemValor = contasAtivas.filter((c) => c.valor == null);
-  const totalContasFixas = contasComValor.reduce((s, c) => s + c.valor, 0);
+  const contasComValor = contasAtivas.filter((c) => valorEsperado(c, mes) != null);
+  const contasSemValor = contasAtivas.filter((c) => valorEsperado(c, mes) == null);
+  const totalContasFixas = contasComValor.reduce((s, c) => s + valorEsperado(c, mes), 0);
 
   const parcelasQueTerminam = parcelamentos.filter((p) => !p.quitado && p.mesQuitacaoEstimado === mes);
+
+  // Parcelamentos com parcela sabidamente ativa em "mes" (depois da última
+  // fatura já importada e até o mês em que quitam) — valor exato, não precisa
+  // estimar o que já se sabe.
+  const parcelasAtivasNoMes = parcelamentos.filter(
+    (p) => !p.quitado && p.ultimoVencimento && mes > p.ultimoVencimento && mes <= p.mesQuitacaoEstimado
+  );
+  const totalParcelasConhecidas = parcelasAtivasNoMes.reduce((s, p) => s + p.valorParcela, 0);
 
   const rendaTotal = rendas.filter((r) => r.ativa !== false).reduce((s, r) => s + r.valor, 0);
 
@@ -87,14 +95,15 @@ function calcularProjecao(mes, mediaGastoCartao) {
   const totalEncargos = faturaDoMes ? (faturaDoMes.encargos || []).reduce((s, e) => s + e.valor, 0) : 0;
 
   // Quando já existe a fatura real do mês, usa o total exato dela (à vista +
-  // parcelas). Em meses futuros, em vez de somar só "gasto à vista médio" +
-  // "as parcelas que já sabemos que continuam" (o que faz a projeção cair
-  // mês a mês conforme parcelas antigas terminam, ignorando que parcelas e
-  // compras novas tendem a ocupar o lugar delas), usa a mediana do TOTAL das
-  // faturas anteriores — reflete melhor o padrão real de gasto no cartão.
+  // parcelas). Em meses futuros, soma o que já se sabe com certeza (parcelas
+  // ativas naquele mês, valor exato) com uma estimativa só da parte
+  // imprevisível (mediana de compras à vista/avulsas do histórico) — assim a
+  // projeção varia mês a mês conforme parcelas terminam de verdade, sem cair
+  // "artificialmente" por ignorar que compras novas tendem a ocupar o lugar
+  // das antigas.
   const totalCartao = faturaDoMes
     ? (faturaDoMes.transacoes || []).reduce((s, t) => s + t.valor, 0)
-    : mediaGastoCartao.media;
+    : medianaGastoAvista.mediana + totalParcelasConhecidas;
 
   const totalDasContas = totalContasFixas + totalCartao + totalEncargos;
   const saldoProjetado = rendaTotal - totalDasContas;
@@ -115,8 +124,8 @@ function calcularProjecao(mes, mediaGastoCartao) {
 function renderizar() {
   const corpo = document.getElementById('planejamento-corpo');
   const meses = proximosMeses(QTD_MESES);
-  const mediaGastoCartao = calcularMediaGastoCartao(faturas);
-  const projecoes = meses.map((mes) => ({ mes, ...calcularProjecao(mes, mediaGastoCartao) }));
+  const medianaGastoAvista = calcularMedianaGastoAvista(faturas);
+  const projecoes = meses.map((mes) => ({ mes, ...calcularProjecao(mes, medianaGastoAvista) }));
 
   function linhaMoeda(rotulo, extrator, opcoes = {}) {
     const celulas = projecoes
@@ -159,8 +168,8 @@ function renderizar() {
           : ''
       }
       ${
-        mediaGastoCartao.quantidadeFaturas > 0
-          ? `<p class="planejamento-nota">"Fatura do cartão" é o valor exato da fatura já importada daquele mês (compras à vista + parcelas). Em meses futuros, sem fatura ainda, é uma estimativa: mediana de compras à vista/avulsas de ${mediaGastoCartao.quantidadeFaturas} fatura(s) importada(s) + as parcelas já sabidas que continuam ativas naquele mês.</p>`
+        medianaGastoAvista.quantidadeFaturas > 0
+          ? `<p class="planejamento-nota">"Fatura do cartão" é o valor exato da fatura já importada daquele mês (compras à vista + parcelas). Em meses futuros, sem fatura ainda, é uma estimativa: mediana de compras à vista/avulsas de ${medianaGastoAvista.quantidadeFaturas} fatura(s) importada(s) + as parcelas já sabidas que continuam ativas naquele mês.</p>`
           : `<p class="planejamento-nota">"Fatura do cartão" ainda está zerada nos meses futuros — importe faturas em "Importar fatura" pra essa estimativa começar a valer.</p>`
       }
       ${

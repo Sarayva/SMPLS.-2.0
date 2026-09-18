@@ -11,6 +11,7 @@ import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategorias
 import { mesAtualISO } from '../services/contasService.js';
 import { encontrarFaturasFaltando, marcarFaturaPaga, ouvirFaturas } from '../services/faturasService.js';
 import {
+  corrigirMesesQuitacao,
   encontrarDuplicatas,
   excluirParcelamento,
   marcarQuitadoManual,
@@ -319,6 +320,22 @@ function renderAvisoDuplicatas(parcelamentos) {
   };
 }
 
+function renderAtivosPorMes(ativos, faltando) {
+  // Já vem ordenado por mês de quitação estimado — só inserir um cabeçalho
+  // toda vez que o mês muda pra agrupar visualmente sem alterar a ordem.
+  let html = '';
+  let mesAberto = undefined;
+  for (const p of ativos) {
+    const chave = p.mesQuitacaoEstimado || null;
+    if (chave !== mesAberto) {
+      mesAberto = chave;
+      html += `<p class="mes-titulo">${chave ? formatarCompetencia(chave) : 'Sem previsão de quitação'}</p>`;
+    }
+    html += renderItem(p, faltando);
+  }
+  return html;
+}
+
 function renderizar(parcelamentos) {
   parcelamentosAtuais = parcelamentos;
   renderResumoLimite();
@@ -334,14 +351,18 @@ function renderizar(parcelamentos) {
   const faltando = encontrarFaturasFaltando(faturasAtuais);
   const ativos = parcelamentos
     .filter((p) => !p.quitado)
-    .sort((a, b) => (a.mesQuitacaoEstimado || '').localeCompare(b.mesQuitacaoEstimado || ''));
+    .sort((a, b) => {
+      if (!a.mesQuitacaoEstimado) return 1;
+      if (!b.mesQuitacaoEstimado) return -1;
+      return a.mesQuitacaoEstimado.localeCompare(b.mesQuitacaoEstimado);
+    });
   const quitados = parcelamentos
     .filter((p) => p.quitado)
     .sort((a, b) => (b.ultimaCompetencia || '').localeCompare(a.ultimaCompetencia || ''));
 
   let html = '';
   html += '<p class="secao-titulo">Ativos</p>';
-  html += ativos.length ? ativos.map((p) => renderItem(p, faltando)).join('') : '<p class="vazio">Nenhum parcelamento ativo.</p>';
+  html += ativos.length ? renderAtivosPorMes(ativos, faltando) : '<p class="vazio">Nenhum parcelamento ativo.</p>';
 
   if (quitados.length) {
     html += '<p class="secao-titulo">Quitados</p>';
@@ -369,11 +390,17 @@ onAuthChange(async (user) => {
   if (pararDeOuvir) pararDeOuvir();
   pararDeOuvir = ouvirParcelamentos(uid, renderizar);
 
+  let backfillQuitacaoFeito = false;
   ouvirFaturas(uid, (novasFaturas) => {
     faturasAtuais = novasFaturas;
     renderFaturaDoMes();
     renderResumoLimite();
     renderizar(parcelamentosAtuais);
+
+    if (!backfillQuitacaoFeito) {
+      backfillQuitacaoFeito = true;
+      corrigirMesesQuitacao(uid, novasFaturas).catch((err) => console.error('Falha ao corrigir meses de quitação:', err));
+    }
   });
 
   ouvirCategoriasCompras(uid, (novosOverrides) => {

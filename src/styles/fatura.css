@@ -183,6 +183,36 @@
   padding: 7px 9px;
 }
 
+.conta-import-campos-linha,
+.conta-import-historico {
+  grid-column: 1 / -1;
+}
+
+.conta-import-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.conta-import-tag-nova {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.conta-import-tag-atualiza {
+  background: var(--attention-bg);
+  color: var(--attention);
+}
+
+.conta-import-historico {
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+
 .conta-import-aviso {
   color: var(--attention);
   flex-shrink: 0;
