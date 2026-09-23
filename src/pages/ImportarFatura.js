@@ -12,7 +12,16 @@ import {
 } from '../services/categoriasComprasService.js';
 import { PADRAO_CARTAO, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import { categorizar } from '../services/categorizacaoService.js';
-import { buscarContas, marcarPago, mesAtualISO, statusConta, valorEsperado } from '../services/contasService.js';
+import { buscarContas, ehContaCartao, marcarPago, mesAtualISO, statusConta, valorEsperado } from '../services/contasService.js';
+import {
+  contasAusentesNaFatura,
+  criarContaCartao,
+  encerrarContaCartao,
+  reconhecerContasNaFatura,
+  registrarCobrancaCartao,
+  sugerirPalavraChave,
+  transacaoCasaComPalavraChave,
+} from '../services/contasCartaoService.js';
 import { buscarExtratoPorPeriodo, excluirExtrato, salvarExtrato } from '../services/extratosService.js';
 import {
   buscarFaturaPorCompetencia,
@@ -189,8 +198,90 @@ function renderErro(mensagem) {
   }
 }
 
+function nomeDaPalavraChave(palavraChave) {
+  return palavraChave.replace(/(^|\s)\S/g, (letra) => letra.toUpperCase());
+}
+
+// Só uma fatura fechada (PDF) e mais recente que todas as já importadas pode
+// sugerir encerrar uma conta do cartão: a fatura aberta (CSV) ainda não tem
+// tudo do mês, e uma fatura antiga não diz nada sobre o presente.
+function podeSugerirEncerramento(fatura) {
+  if (fatura.origem === 'csv' || !fatura.vencimento) return false;
+  const outras = faturasConhecidas.filter((f) => f.vencimento && f.competencia !== fatura.competencia);
+  return outras.every((f) => f.vencimento <= fatura.vencimento);
+}
+
 function renderPreview(fatura) {
   const opcoesCategoria = (categoriasCartao.length ? categoriasCartao.map((c) => c.nome) : PADRAO_CARTAO);
+  const mesFatura = fatura.vencimento ? fatura.vencimento.slice(0, 7) : null;
+  const { marcacoes: marcasContaFixa, repetidas } = mesFatura
+    ? reconhecerContasNaFatura(fatura.transacoes, contasFixas, mesFatura)
+    : { marcacoes: {}, repetidas: [] };
+  const sugerirEncerrar = mesFatura && podeSugerirEncerramento(fatura);
+  // Contas que a pessoa desmarcou na lista de "encerrar" — guardado à parte
+  // pra escolha dela sobreviver quando a lista é redesenhada.
+  const naoEncerrar = new Set();
+
+  function contasParaEncerrar() {
+    if (!sugerirEncerrar) return [];
+    const vinculadas = new Set(
+      Object.values(marcasContaFixa).filter((m) => m.marcada && m.contaId).map((m) => m.contaId)
+    );
+    return contasAusentesNaFatura(contasFixas, vinculadas, mesFatura);
+  }
+
+  function detalheContaFixaHTML(indice) {
+    const m = marcasContaFixa[indice];
+    if (!m || !m.marcada) return '';
+    const nota = m.contaId
+      ? `já cadastrada como "${escapeHTML(m.nomeConta)}"`
+      : m.voltou
+        ? `"${escapeHTML(m.nomeConta)}" voltou — será cadastrada de novo`
+        : 'nova conta fixa';
+    return `
+      <input type="text" class="campo-palavra-chave" data-palavra-chave="${indice}" value="${escapeHTML(m.palavraChave)}" title="Palavra usada pra reconhecer esta conta nas próximas faturas">
+      <span class="conta-fixa-nota">${nota}</span>
+    `;
+  }
+
+  function celulaContaFixaHTML(t, indice) {
+    if (t.parcelaTotal) return '—';
+    const m = marcasContaFixa[indice];
+    return `
+      <label class="conta-fixa-marca">
+        <input type="checkbox" data-conta-fixa="${indice}" ${m?.marcada ? 'checked' : ''}> Conta fixa
+      </label>
+      <div data-conta-fixa-detalhe="${indice}">${detalheContaFixaHTML(indice)}</div>
+    `;
+  }
+
+  function avisoContasCartaoHTML() {
+    const partes = repetidas.map(
+      ({ conta, quantidade }) =>
+        `<p class="conta-fixa-nota">"${escapeHTML(conta.palavraChave)}" aparece em ${quantidade} compras desta fatura — só a primeira foi vinculada a "${escapeHTML(conta.nome)}". Confira se é a certa.</p>`
+    );
+    const ausentes = contasParaEncerrar();
+    if (ausentes.length > 0) {
+      partes.push(`
+        <p style="margin:0 0 8px; font-weight:600;">Não vieram nesta fatura:</p>
+        ${ausentes
+          .map(
+            (c) => `
+          <label class="conta-fixa-marca" style="display:flex; margin-bottom:6px;">
+            <input type="checkbox" data-encerrar-id="${c.id}" ${naoEncerrar.has(c.id) ? '' : 'checked'}>
+            Encerrar "${escapeHTML(c.nome)}" nas contas fixas
+          </label>`
+          )
+          .join('')}
+        <p class="conta-fixa-nota">Encerrar tira a conta dos próximos meses; os meses em que ela existiu continuam registrados.</p>
+      `);
+    }
+    return partes.length ? `<div class="elevated-card aviso-duplicatas" style="display:block;">${partes.join('')}</div>` : '';
+  }
+
+  function atualizarAvisoContasCartao() {
+    document.getElementById('contas-cartao-aviso').innerHTML = avisoContasCartaoHTML();
+  }
 
   const linhasTransacoes = fatura.transacoes
     .map(
@@ -202,6 +293,7 @@ function renderPreview(fatura) {
           <input type="text" list="lista-categorias-cartao" data-indice-transacao="${indice}" value="${escapeHTML(t.categoria)}">
         </td>
         <td>${t.parcelaTotal ? `<span class="parcela-tag">${t.parcelaAtual}/${t.parcelaTotal}${t.antecipada ? ' · antecipada' : ''}</span>` : '—'}</td>
+        <td>${celulaContaFixaHTML(t, indice)}</td>
         <td style="text-align:right;">${formatarMoeda(t.valor)}</td>
       </tr>
     `
@@ -260,11 +352,15 @@ function renderPreview(fatura) {
       <div style="overflow-x:auto;">
         <table class="transacoes-tabela">
           <thead>
-            <tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Parcela</th><th style="text-align:right;">Valor</th></tr>
+            <tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Parcela</th><th>Conta fixa</th><th style="text-align:right;">Valor</th></tr>
           </thead>
-          <tbody>${linhasTransacoes || '<tr><td colspan="5">Nenhuma transação encontrada.</td></tr>'}</tbody>
+          <tbody>${linhasTransacoes || '<tr><td colspan="6">Nenhuma transação encontrada.</td></tr>'}</tbody>
         </table>
       </div>
+      <p style="color:var(--text-sec); font-size:0.8rem;">
+        Marque "Conta fixa" em assinaturas e cobranças recorrentes (Spotify, academia, seguro...). Elas passam a aparecer em Contas fixas e são reconhecidas sozinhas nas próximas faturas pela palavra ao lado.
+      </p>
+      <div id="contas-cartao-aviso">${avisoContasCartaoHTML()}</div>
 
       <div class="fatura-acoes">
         <button id="btn-cancelar" class="btn-secondary" type="button">${filaArquivos.length > 1 ? 'Pular esta' : 'Cancelar'}</button>
@@ -288,6 +384,45 @@ function renderPreview(fatura) {
     });
   });
 
+  conteudo.querySelectorAll('input[data-conta-fixa]').forEach((caixa) => {
+    caixa.onchange = () => {
+      const indice = Number(caixa.dataset.contaFixa);
+      const t = fatura.transacoes[indice];
+      if (caixa.checked) {
+        const palavraChave = marcasContaFixa[indice]?.palavraChave || sugerirPalavraChave(t.descricao);
+        // Marcou na mão algo que já é conta do cartão em andamento (ex: a
+        // palavra-chave antiga não pegou o nome novo) — vincula a ela.
+        const existente = contasFixas.find(
+          (c) => ehContaCartao(c) && c.ativa !== false && !c.mesFim && transacaoCasaComPalavraChave(t, c.palavraChave)
+        );
+        marcasContaFixa[indice] = existente
+          ? { marcada: true, palavraChave: existente.palavraChave, contaId: existente.id, voltou: false, nomeConta: existente.nome }
+          : { marcada: true, palavraChave, contaId: null, voltou: false, nomeConta: nomeDaPalavraChave(palavraChave) };
+      } else if (marcasContaFixa[indice]) {
+        marcasContaFixa[indice].marcada = false;
+      }
+      conteudo.querySelector(`[data-conta-fixa-detalhe="${indice}"]`).innerHTML = detalheContaFixaHTML(indice);
+      atualizarAvisoContasCartao();
+    };
+  });
+
+  conteudo.querySelector('.transacoes-tabela').addEventListener('input', (e) => {
+    const campo = e.target.closest('[data-palavra-chave]');
+    if (!campo) return;
+    const m = marcasContaFixa[Number(campo.dataset.palavraChave)];
+    if (!m) return;
+    m.palavraChave = campo.value;
+    // Conta nova ganha o nome da palavra-chave; uma já cadastrada mantém o dela.
+    if (!m.contaId && !m.voltou) m.nomeConta = nomeDaPalavraChave(campo.value.trim());
+  });
+
+  document.getElementById('contas-cartao-aviso').addEventListener('change', (e) => {
+    const caixa = e.target.closest('[data-encerrar-id]');
+    if (!caixa) return;
+    if (caixa.checked) naoEncerrar.delete(caixa.dataset.encerrarId);
+    else naoEncerrar.add(caixa.dataset.encerrarId);
+  });
+
   document.getElementById('btn-cancelar').onclick = () => {
     if (filaArquivos.length > 1) {
       resumoImportacao.push({ nomeArquivo: filaArquivos[indiceFila].name, status: 'pulada', mensagem: 'Pulada' });
@@ -296,6 +431,58 @@ function renderPreview(fatura) {
       renderDropZone();
     }
   };
+
+  // Grava as contas do cartão marcadas na prévia e anota em cada compra a
+  // conta a que ela pertence (contaFixaId) — é isso que tira a compra da
+  // parte "cartão" dos totais e faz ela contar como conta fixa.
+  async function aplicarContasDoCartao() {
+    let criadas = 0;
+    let encerradas = 0;
+    if (!mesFatura) return { criadas, encerradas };
+    const diaVencimento = Number(fatura.vencimento.slice(8, 10));
+    let categoriasContas = null;
+
+    for (const [indice, m] of Object.entries(marcasContaFixa)) {
+      const t = fatura.transacoes[Number(indice)];
+      if (!m.marcada) {
+        delete t.contaFixaId;
+        continue;
+      }
+      const palavraChave = (m.palavraChave || '').trim().toLowerCase() || sugerirPalavraChave(t.descricao);
+      const conta = m.contaId ? contasFixas.find((c) => c.id === m.contaId) : null;
+
+      if (conta) {
+        await registrarCobrancaCartao(uid, conta, { valor: t.valor, palavraChave, mes: mesFatura, diaVencimento });
+        t.contaFixaId = conta.id;
+        continue;
+      }
+
+      const categoria = t.categoria || 'Outros';
+      categoriasContas ??= await buscarCategorias(uid, 'contas');
+      if (!categoriasContas.some((c) => c.nome.toLowerCase() === categoria.toLowerCase())) {
+        await adicionarCategoria(uid, 'contas', categoria);
+        categoriasContas = await buscarCategorias(uid, 'contas');
+      }
+      t.contaFixaId = await criarContaCartao(uid, {
+        nome: m.nomeConta || nomeDaPalavraChave(palavraChave),
+        categoria,
+        valor: t.valor,
+        palavraChave,
+        mes: mesFatura,
+        diaVencimento,
+      });
+      criadas++;
+    }
+
+    for (const conta of contasParaEncerrar()) {
+      if (naoEncerrar.has(conta.id)) continue;
+      await encerrarContaCartao(uid, conta.id, mesFatura);
+      encerradas++;
+    }
+
+    contasFixas = await buscarContas(uid);
+    return { criadas, encerradas };
+  }
 
   document.getElementById('btn-confirmar').onclick = async () => {
     if (!uid) return;
@@ -328,6 +515,8 @@ function renderPreview(fatura) {
         fatura.transacoes.filter((t) => t.categoria).map((t) => definirCategoriaCompra(uid, t.descricao, t.categoria))
       );
 
+      const { criadas, encerradas } = await aplicarContasDoCartao();
+
       if (existente) await excluirFatura(uid, existente.id);
       await salvarFatura(uid, fatura);
       await mesclarParcelas(uid, fatura);
@@ -336,8 +525,11 @@ function renderPreview(fatura) {
         resumoImportacao.push({ nomeArquivo: filaArquivos[indiceFila].name, status: 'salva', mensagem: `Salva — ${formatarData(fatura.vencimento)}` });
         avancarFila();
       } else {
+        const extras = [];
+        if (criadas) extras.push(`${criadas} conta(s) fixa(s) nova(s)`);
+        if (encerradas) extras.push(`${encerradas} encerrada(s)`);
         document.getElementById('fatura-mensagem').innerHTML =
-          '<p style="color:var(--success); font-weight:600;">Fatura salva e parcelamentos atualizados.</p>';
+          `<p style="color:var(--success); font-weight:600;">Fatura salva e parcelamentos atualizados${extras.length ? ` — ${extras.join(', ')}` : ''}.</p>`;
         botao.textContent = 'Salvo ✓';
       }
     } catch (err) {
@@ -506,7 +698,7 @@ function anotarLancamentos(extrato) {
     }
 
     const mes = l.data ? l.data.slice(0, 7) : mesAtualISO();
-    const contasNaoPagas = contasFixas.filter((c) => c.ativa !== false && statusConta(c, mes) !== 'pago');
+    const contasNaoPagas = contasFixas.filter((c) => c.ativa !== false && !ehContaCartao(c) && statusConta(c, mes) !== 'pago');
     const vinculado = contaVinculada(vinculosContas, l.contraparte);
 
     if (vinculado && contasNaoPagas.some((c) => c.id === vinculado)) {
@@ -548,7 +740,7 @@ function renderLinhaLancamento(l, indice) {
   }
 
   const mes = l.data ? l.data.slice(0, 7) : mesAtualISO();
-  const contasNaoPagas = contasFixas.filter((c) => c.ativa !== false && statusConta(c, mes) !== 'pago');
+  const contasNaoPagas = contasFixas.filter((c) => c.ativa !== false && !ehContaCartao(c) && statusConta(c, mes) !== 'pago');
 
   return `<tr>
     <td>${dataFmt}</td>

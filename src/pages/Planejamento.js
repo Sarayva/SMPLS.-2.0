@@ -1,7 +1,15 @@
 import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components/Sidebar.js';
 import { onAuthChange } from '../firebase/auth.js';
 import { calcularMedianaGastoAvista } from '../services/analisesService.js';
-import { mesAtualISO, ouvirContas, valorEsperado } from '../services/contasService.js';
+import {
+  contaVigenteNoMes,
+  ehContaCartao,
+  mesAtualISO,
+  ouvirContas,
+  transacaoViraContaFixa,
+  valorContaCartaoNoMes,
+  valorEsperado,
+} from '../services/contasService.js';
 import { ouvirFaturas } from '../services/faturasService.js';
 import { ouvirParcelamentos } from '../services/parcelamentosService.js';
 import { ouvirRendas } from '../services/rendaService.js';
@@ -67,10 +75,13 @@ function proximosMeses(qtd) {
 }
 
 function calcularProjecao(mes, medianaGastoAvista) {
-  const contasAtivas = contas.filter((c) => c.ativa !== false);
-  const contasComValor = contasAtivas.filter((c) => valorEsperado(c, mes) != null);
-  const contasSemValor = contasAtivas.filter((c) => valorEsperado(c, mes) == null);
-  const totalContasFixas = contasComValor.reduce((s, c) => s + valorEsperado(c, mes), 0);
+  const contasAtivas = contas.filter((c) => contaVigenteNoMes(c, mes));
+  // Conta do cartão vale o que foi vinculado na fatura do mês (ou o último
+  // valor conhecido, em mês sem fatura ainda) — ver valorContaCartaoNoMes.
+  const valorDaConta = (c) => (ehContaCartao(c) ? valorContaCartaoNoMes(c, mes, faturas) : valorEsperado(c, mes));
+  const contasComValor = contasAtivas.filter((c) => valorDaConta(c) != null);
+  const contasSemValor = contasAtivas.filter((c) => valorDaConta(c) == null);
+  const totalContasFixas = contasComValor.reduce((s, c) => s + valorDaConta(c), 0);
 
   const parcelasQueTerminam = parcelamentos.filter((p) => !p.quitado && p.mesQuitacaoEstimado === mes);
 
@@ -103,7 +114,9 @@ function calcularProjecao(mes, medianaGastoAvista) {
   // das antigas.
   // Créditos (ex: "Desconto Antecipação") abatem o total da fatura real.
   const totalCartao = faturaDoMes
-    ? (faturaDoMes.transacoes || []).reduce((s, t) => s + t.valor, 0) -
+    ? (faturaDoMes.transacoes || [])
+        .filter((t) => !transacaoViraContaFixa(t, mes, contas))
+        .reduce((s, t) => s + t.valor, 0) -
       (faturaDoMes.creditos || []).reduce((s, c) => s + c.valor, 0)
     : medianaGastoAvista.mediana + totalParcelasConhecidas;
 
@@ -126,7 +139,7 @@ function calcularProjecao(mes, medianaGastoAvista) {
 function renderizar() {
   const corpo = document.getElementById('planejamento-corpo');
   const meses = proximosMeses(QTD_MESES);
-  const medianaGastoAvista = calcularMedianaGastoAvista(faturas);
+  const medianaGastoAvista = calcularMedianaGastoAvista(faturas, contas);
   const projecoes = meses.map((mes) => ({ mes, ...calcularProjecao(mes, medianaGastoAvista) }));
 
   function linhaMoeda(rotulo, extrator, opcoes = {}) {

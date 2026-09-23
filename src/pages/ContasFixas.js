@@ -3,6 +3,7 @@ import { atualizarPerfilSidebar, ligarSidebar, sidebarHTML } from '../components
 import { onAuthChange } from '../firebase/auth.js';
 import { PADRAO_CONTAS, adicionarCategoria, buscarCategorias, garantirCategoriasPadrao } from '../services/categoriasService.js';
 import {
+  contaVigenteNoMes,
   definirValorMensal,
   desmarcarPago,
   encontrarContasDuplicadas,
@@ -65,6 +66,10 @@ app.innerHTML = `
       <div class="elevated-card resumo-card resumo-atrasado">
         <span class="label">Atrasado</span>
         <span class="valor" id="resumo-atrasado">R$ 0,00</span>
+      </div>
+      <div class="elevated-card resumo-card" id="resumo-cartao-card" style="display:none;">
+        <span class="label">No cartão</span>
+        <span class="valor" id="resumo-cartao">R$ 0,00</span>
       </div>
     </div>
 
@@ -168,17 +173,24 @@ function renderAcoesUniao() {
 function renderizar() {
   renderAvisoDuplicatas();
   renderAcoesUniao();
-  const contasAtivas = contas.filter((c) => c.ativa !== false);
+  const contasAtivas = contas.filter((c) => contaVigenteNoMes(c, mesSelecionado));
 
   let total = 0;
   let pago = 0;
   let pendente = 0;
   let atrasado = 0;
+  let noCartao = 0;
   const porCategoria = {};
 
   for (const conta of contasAtivas) {
     const status = statusConta(conta, mesSelecionado);
-    if (status === 'pago') {
+    if (status === 'cartao') {
+      // Cobrada na fatura do cartão: entra no total do mês, mas não é paga
+      // aqui — por isso não cai em pago/pendente/atrasado.
+      const valor = valorEsperado(conta, mesSelecionado) ?? 0;
+      total += valor;
+      noCartao += valor;
+    } else if (status === 'pago') {
       const valorPago = conta.pagamentos?.[mesSelecionado]?.valorPago ?? valorEsperado(conta, mesSelecionado) ?? 0;
       total += valorPago;
       pago += valorPago;
@@ -197,6 +209,8 @@ function renderizar() {
   document.getElementById('resumo-pago').textContent = formatarMoeda(pago);
   document.getElementById('resumo-pendente').textContent = formatarMoeda(pendente);
   document.getElementById('resumo-atrasado').textContent = formatarMoeda(atrasado);
+  document.getElementById('resumo-cartao').textContent = formatarMoeda(noCartao);
+  document.getElementById('resumo-cartao-card').style.display = noCartao > 0 ? '' : 'none';
 
   const listaEl = document.getElementById('lista-contas');
 
@@ -231,9 +245,10 @@ function renderizar() {
 
 function renderConta(conta) {
   const status = statusConta(conta, mesSelecionado);
-  const texto = { pago: 'Pago', pendente: 'Pendente', atrasado: 'Atrasado' }[status];
+  const texto = { pago: 'Pago', pendente: 'Pendente', atrasado: 'Atrasado', cartao: 'No cartão' }[status];
   const valorDoMes = valorEsperado(conta, mesSelecionado);
-  const valorEditavel = status !== 'pago' && valorDoMes != null;
+  // O valor de uma conta do cartão vem da fatura importada — não se edita aqui.
+  const valorEditavel = status !== 'pago' && status !== 'cartao' && valorDoMes != null;
 
   let valorTexto;
   if (status === 'pago') {
@@ -255,13 +270,17 @@ function renderConta(conta) {
   return `
     <div class="elevated-card conta-item">
       ${checkboxUniao}
-      <button class="conta-check ${status === 'pago' ? 'pago' : ''}" data-id="${conta.id}" title="Marcar pago/pendente">
+      ${
+        status === 'cartao'
+          ? '<span class="conta-check conta-check-cartao" title="Paga junto com a fatura do cartão"></span>'
+          : `<button class="conta-check ${status === 'pago' ? 'pago' : ''}" data-id="${conta.id}" title="Marcar pago/pendente">
         ${status === 'pago' ? '✓' : ''}
-      </button>
+      </button>`
+      }
       <div class="conta-info" data-edit-id="${conta.id}">
         <div class="conta-nome">${escapeHTML(conta.nome)}</div>
         <div class="conta-detalhe">
-          Vence dia ${conta.diaVencimento} ·
+          ${status === 'cartao' ? `Cobrada na fatura (vence dia ${conta.diaVencimento})` : `Vence dia ${conta.diaVencimento}`} ·
           <button class="badge badge-categoria-conta" data-categoria-conta-id="${conta.id}" title="Clique para mudar a categoria">${escapeHTML(conta.categoria)}</button>
         </div>
       </div>

@@ -259,3 +259,31 @@
   font-size: 0.82rem;
   padding: 5px 8px;
 }
+
+.conta-fixa-marca {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.transacoes-tabela .conta-fixa-marca input,
+.conta-fixa-marca input[type='checkbox'] {
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.transacoes-tabela .campo-palavra-chave {
+  margin-top: 6px;
+  min-width: 120px;
+}
+
+.conta-fixa-nota {
+  display: block;
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}

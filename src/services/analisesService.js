@@ -1,6 +1,23 @@
 import { categoriaResolvida } from './categoriasComprasService.js';
-import { statusConta, valorEsperado } from './contasService.js';
+import {
+  contaVigenteNoMes,
+  ehContaCartao,
+  statusConta,
+  transacaoViraContaFixa,
+  valorContaCartaoNoMes,
+  valorEsperado,
+} from './contasService.js';
+import { transacaoCasaComPalavraChave } from './contasCartaoService.js';
 import { pareceSerAMesmaPessoa } from './titularesService.js';
+
+// Valor de uma conta num mês pros totais: contas do cartão usam o que foi
+// vinculado na fatura daquele mês (ver valorContaCartaoNoMes); as demais,
+// o pagamento registrado ou o valor esperado.
+function valorContaNoMes(conta, mes, faturas) {
+  if (ehContaCartao(conta)) return valorContaCartaoNoMes(conta, mes, faturas) ?? 0;
+  const status = statusConta(conta, mes);
+  return status === 'pago' ? conta.pagamentos?.[mes]?.valorPago ?? valorEsperado(conta, mes) ?? 0 : valorEsperado(conta, mes) ?? 0;
+}
 
 const TIPOS_TRANSFERENCIA = ['pix_enviado', 'pix_recebido', 'transferencia_enviada', 'transferencia_recebida', 'reembolso'];
 
@@ -72,10 +89,8 @@ export function calcularGastosPorMeses(contas, faturas, extratos, nomesFamilia, 
       total += valor;
     }
 
-    for (const conta of contas.filter((c) => c.ativa !== false)) {
-      const status = statusConta(conta, mes);
-      const valor = status === 'pago' ? conta.pagamentos?.[mes]?.valorPago ?? valorEsperado(conta, mes) ?? 0 : valorEsperado(conta, mes) ?? 0;
-      somar(conta.categoria, valor);
+    for (const conta of contas.filter((c) => contaVigenteNoMes(c, mes))) {
+      somar(conta.categoria, valorContaNoMes(conta, mes, faturas));
     }
 
     // "Despesas do mês" é o que você deve pagar naquele mês: contas fixas +
@@ -86,6 +101,8 @@ export function calcularGastosPorMeses(contas, faturas, extratos, nomesFamilia, 
     // zerada até a fatura de outubro (competência setembro) ser importada.
     for (const fatura of faturas.filter((f) => f.vencimento && f.vencimento.slice(0, 7) === mes)) {
       for (const transacao of fatura.transacoes || []) {
+        // Compra marcada como conta fixa já entrou acima, pela conta.
+        if (transacaoViraContaFixa(transacao, mes, contas)) continue;
         somar(categoriaResolvida(overridesCompras, transacao.descricao, transacao.categoria), transacao.valor);
       }
       for (const encargo of fatura.encargos || []) {
@@ -111,9 +128,8 @@ export function itensDasCategorias(contas, faturas, extratos, nomesFamilia, cate
   const itens = [];
 
   for (const mes of meses) {
-    for (const conta of contas.filter((c) => c.ativa !== false && categorias.includes(c.categoria))) {
-      const status = statusConta(conta, mes);
-      const valor = status === 'pago' ? conta.pagamentos?.[mes]?.valorPago ?? valorEsperado(conta, mes) ?? 0 : valorEsperado(conta, mes) ?? 0;
+    for (const conta of contas.filter((c) => contaVigenteNoMes(c, mes) && categorias.includes(c.categoria))) {
+      const valor = valorContaNoMes(conta, mes, faturas);
       if (!valor) continue;
       itens.push({
         tipo: 'conta',
@@ -128,6 +144,7 @@ export function itensDasCategorias(contas, faturas, extratos, nomesFamilia, cate
 
     for (const fatura of faturas.filter((f) => f.vencimento && f.vencimento.slice(0, 7) === mes)) {
       (fatura.transacoes || []).forEach((transacao) => {
+        if (transacaoViraContaFixa(transacao, mes, contas)) return;
         const categoria = categoriaResolvida(overridesCompras, transacao.descricao, transacao.categoria);
         if (!transacao.valor || !categorias.includes(categoria)) return;
         itens.push({
@@ -180,10 +197,20 @@ export function itensDasCategorias(contas, faturas, extratos, nomesFamilia, cate
 // só a compra nova/avulsa (que ninguém consegue prever) precisa de uma
 // estimativa. Misturar as duas coisas numa única mediana do total fazia a
 // projeção ficar cega às parcelas reais que terminam mês a mês.
-export function calcularMedianaGastoAvista(faturas) {
+//
+// Assinaturas marcadas como conta fixa do cartão também ficam de fora: nos
+// meses futuros elas já entram pela própria conta, com valor conhecido.
+// Pela palavra-chave (e não só pela marcação) pra excluir também as faturas
+// importadas antes de a assinatura ser marcada.
+export function calcularMedianaGastoAvista(faturas, contas = []) {
+  const palavrasContasCartao = contas
+    .filter((c) => ehContaCartao(c) && c.ativa !== false && !c.mesFim && c.palavraChave)
+    .map((c) => c.palavraChave);
+  const ehAssinatura = (t) => t.contaFixaId || palavrasContasCartao.some((p) => transacaoCasaComPalavraChave(t, p));
+
   const totaisAvista = faturas
     .filter((f) => f.competencia && Array.isArray(f.transacoes))
-    .map((f) => f.transacoes.filter((t) => !t.parcelaTotal).reduce((s, t) => s + t.valor, 0));
+    .map((f) => f.transacoes.filter((t) => !t.parcelaTotal && !ehAssinatura(t)).reduce((s, t) => s + t.valor, 0));
 
   if (totaisAvista.length === 0) return { mediana: 0, quantidadeFaturas: 0 };
 

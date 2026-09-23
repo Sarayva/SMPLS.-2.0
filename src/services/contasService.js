@@ -159,7 +159,47 @@ export function mesAtualISO() {
   return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// Contas que vêm da fatura do cartão (assinaturas: Spotify, Wellhub...)
+// têm começo e fim — só valem entre o mês da fatura em que foram marcadas
+// e o mês em que foram encerradas. Contas comuns não têm nenhum dos dois e
+// continuam valendo em todos os meses, como sempre.
+export function contaVigenteNoMes(conta, mes) {
+  if (conta.ativa === false) return false;
+  if (conta.mesInicio && mes < conta.mesInicio) return false;
+  if (conta.mesFim && mes > conta.mesFim) return false;
+  return true;
+}
+
+export function ehContaCartao(conta) {
+  return conta?.origem === 'cartao';
+}
+
+// Valor de uma conta do cartão num mês: se a fatura que vence nesse mês já
+// foi importada, é exatamente o que foi vinculado a essa conta nela (nada
+// vinculado = zero, a compra continua contando como gasto do cartão). Sem
+// fatura ainda (mês futuro), usa o último valor conhecido. Assim nunca conta
+// duas vezes, mesmo se a fatura for reimportada com a marcação desfeita.
+export function valorContaCartaoNoMes(conta, mes, faturas) {
+  const faturasDoMes = (faturas || []).filter((f) => f.vencimento && f.vencimento.slice(0, 7) === mes);
+  if (faturasDoMes.length === 0) return valorEsperado(conta, mes);
+  return faturasDoMes
+    .flatMap((f) => f.transacoes || [])
+    .filter((t) => t.contaFixaId === conta.id)
+    .reduce((s, t) => s + t.valor, 0);
+}
+
+// Uma compra marcada como conta fixa sai da parte "cartão" dos totais —
+// mas só enquanto a conta existir e valer naquele mês. Se a conta foi
+// excluída ou encerrada antes, a compra volta a contar como gasto do cartão
+// em vez de sumir.
+export function transacaoViraContaFixa(transacao, mes, contas) {
+  if (!transacao.contaFixaId) return false;
+  const conta = contas.find((c) => c.id === transacao.contaFixaId);
+  return Boolean(conta && ehContaCartao(conta) && contaVigenteNoMes(conta, mes));
+}
+
 export function statusConta(conta, mes) {
+  if (ehContaCartao(conta)) return 'cartao';
   const pagamento = conta.pagamentos?.[mes];
   if (pagamento?.pago) return 'pago';
 
@@ -175,9 +215,11 @@ export function calcularTotais(contas, mes) {
   let pendente = 0;
   let atrasado = 0;
 
-  for (const conta of contas.filter((c) => c.ativa !== false)) {
+  for (const conta of contas.filter((c) => contaVigenteNoMes(c, mes))) {
     const status = statusConta(conta, mes);
-    if (status === 'pago') {
+    if (status === 'cartao') {
+      total += valorEsperado(conta, mes) ?? 0;
+    } else if (status === 'pago') {
       const valorPago = conta.pagamentos?.[mes]?.valorPago ?? valorEsperado(conta, mes) ?? 0;
       total += valorPago;
       pago += valorPago;

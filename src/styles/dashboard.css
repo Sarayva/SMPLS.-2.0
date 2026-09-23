@@ -216,3 +216,10 @@
 @media (max-width: 640px) {
   .resumo { grid-template-columns: repeat(2, 1fr); }
 }
+
+.badge-cartao { background: var(--bg-card-sec); color: var(--primary-light); }
+
+.conta-check-cartao {
+  border-style: dashed;
+  cursor: default;
+}
