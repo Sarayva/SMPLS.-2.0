@@ -2,6 +2,7 @@ import { resolve } from 'path';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  base: '/SMPLS.-2.0/',
   build: {
     rollupOptions: {
       input: {
