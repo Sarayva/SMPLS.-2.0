@@ -7,7 +7,7 @@ initTheme();
 let cadastrando = false;
 
 onAuthChange((user) => {
-  if (user && !cadastrando) window.location.href = '/index.html';
+  if (user && !cadastrando) window.location.href = 'index.html';
 });
 
 const MENSAGENS_ERRO = {
@@ -160,7 +160,7 @@ formCadastro.addEventListener('submit', async (e) => {
   cadastrando = true;
   try {
     await signUp(nome, email, senha);
-    window.location.href = '/index.html';
+    window.location.href = 'index.html';
   } catch (err) {
     cadastrando = false;
     mostrarErro(mensagemDeErro(err));

@@ -73,7 +73,7 @@ app.innerHTML = `
     <div class="lista-header">
       <h2>Suas contas</h2>
       <div style="display:flex; gap:8px;">
-        <a href="/importar-contas.html" class="btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center;">Importar planilha</a>
+        <a href="importar-contas.html" class="btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center;">Importar planilha</a>
         <button id="btn-modo-uniao" class="btn-secondary" type="button">Unir contas</button>
         <button id="btn-nova-conta" class="btn-primary" type="button">+ Nova conta</button>
       </div>
@@ -462,7 +462,7 @@ document.getElementById('lista-contas').addEventListener('click', async (e) => {
 
 onAuthChange(async (user) => {
   if (!user) {
-    window.location.href = '/login.html';
+    window.location.href = 'login.html';
     return;
   }
 

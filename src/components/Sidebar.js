@@ -4,12 +4,12 @@ import { icones } from '../services/icones.js';
 import { getTheme, toggleTheme } from '../services/themeService.js';
 
 const ITENS_NAV = [
-  { pagina: 'geral', href: '/index.html', icone: 'home', label: 'Visão geral' },
-  { pagina: 'contas', href: '/contas.html', icone: 'resumo', label: 'Contas fixas' },
-  { pagina: 'fatura', href: '/fatura.html', icone: 'fatura', label: 'Importar fatura' },
-  { pagina: 'parcelamentos', href: '/parcelamentos.html', icone: 'parcelamentos', label: 'Parcelamentos' },
-  { pagina: 'renda', href: '/renda.html', icone: 'renda', label: 'Renda' },
-  { pagina: 'planejamento', href: '/planejamento.html', icone: 'planejamento', label: 'Planejamento' },
+  { pagina: 'geral', href: 'index.html', icone: 'home', label: 'Visão geral' },
+  { pagina: 'contas', href: 'contas.html', icone: 'resumo', label: 'Contas fixas' },
+  { pagina: 'fatura', href: 'fatura.html', icone: 'fatura', label: 'Importar fatura' },
+  { pagina: 'parcelamentos', href: 'parcelamentos.html', icone: 'parcelamentos', label: 'Parcelamentos' },
+  { pagina: 'renda', href: 'renda.html', icone: 'renda', label: 'Renda' },
+  { pagina: 'planejamento', href: 'planejamento.html', icone: 'planejamento', label: 'Planejamento' },
 ];
 
 export function sidebarHTML(paginaAtiva, extraHTML = '') {
@@ -33,7 +33,7 @@ export function sidebarHTML(paginaAtiva, extraHTML = '') {
       ${extraHTML}
 
       <div class="painel-sidebar-rodape">
-        <a href="/perfil.html" class="painel-perfil-link" id="perfil-link">
+        <a href="perfil.html" class="painel-perfil-link" id="perfil-link">
           ${avatarHTML('', 34)}
           <span id="perfil-nome">Definir apelido</span>
         </a>

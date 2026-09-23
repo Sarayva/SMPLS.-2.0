@@ -733,7 +733,7 @@ renderDropZone();
 
 onAuthChange(async (user) => {
   if (!user) {
-    window.location.href = '/login.html';
+    window.location.href = 'login.html';
     return;
   }
   uid = user.uid;
