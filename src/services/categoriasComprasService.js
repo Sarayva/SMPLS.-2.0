@@ -1,4 +1,5 @@
 import { collection, db, doc, getDoc, getDocs, onSnapshot, query, setDoc } from '../firebase/firestore.js';
+import { semPrefixoCartao } from '../parsers/descricaoUtil.js';
 
 function categoriasComprasRef(uid) {
   return collection(db, 'users', uid, 'categoriasCompras');
@@ -12,10 +13,17 @@ function categoriasGlobaisRef() {
   return collection(db, 'categoriasGlobaisCompras');
 }
 
-export function chaveCompra(descricao) {
+function chaveBruta(descricao) {
   // "/" não pode aparecer num ID de documento do Firestore (vira separador
   // de caminho) — troca por um espaço antes de normalizar.
   return (descricao || '').trim().toLowerCase().replace(/\//g, ' ').replace(/\s+/g, ' ').trim() || 'sem-descricao';
+}
+
+// Sem o final do cartão ("•••• 5163 "): a mesma loja vem com e sem ele
+// (PDF x CSV), e o número muda de pessoa pra pessoa — com ele na chave, a
+// categoria ensinada numa fatura não valia na outra.
+export function chaveCompra(descricao) {
+  return chaveBruta(semPrefixoCartao(descricao));
 }
 
 function mapaDoSnapshot(snapshot) {
@@ -98,5 +106,6 @@ export async function definirCategoriaCompra(uid, descricao, categoria) {
 }
 
 export function categoriaResolvida(overrides, descricao, categoriaOriginal) {
-  return overrides?.[chaveCompra(descricao)] ?? categoriaOriginal;
+  // A chave bruta cobre categorias gravadas antes da limpeza do prefixo.
+  return overrides?.[chaveCompra(descricao)] ?? overrides?.[chaveBruta(descricao)] ?? categoriaOriginal;
 }

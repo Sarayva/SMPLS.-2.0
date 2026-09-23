@@ -201,7 +201,7 @@ function renderPreview(fatura) {
         <td>
           <input type="text" list="lista-categorias-cartao" data-indice-transacao="${indice}" value="${escapeHTML(t.categoria)}">
         </td>
-        <td>${t.parcelaTotal ? `<span class="parcela-tag">${t.parcelaAtual}/${t.parcelaTotal}</span>` : '—'}</td>
+        <td>${t.parcelaTotal ? `<span class="parcela-tag">${t.parcelaAtual}/${t.parcelaTotal}${t.antecipada ? ' · antecipada' : ''}</span>` : '—'}</td>
         <td style="text-align:right;">${formatarMoeda(t.valor)}</td>
       </tr>
     `
@@ -236,6 +236,14 @@ function renderPreview(fatura) {
           ? `<div class="elevated-card resumo-card">
               <span class="label">Encargos e juros</span>
               <span class="valor" style="color:var(--danger);">${formatarMoeda(fatura.encargos.reduce((s, e) => s + e.valor, 0))}</span>
+            </div>`
+          : ''
+      }
+      ${
+        fatura.creditos && fatura.creditos.length > 0
+          ? `<div class="elevated-card resumo-card">
+              <span class="label">Descontos e créditos</span>
+              <span class="valor" style="color:var(--success);">−${formatarMoeda(fatura.creditos.reduce((s, c) => s + c.valor, 0))}</span>
             </div>`
           : ''
       }

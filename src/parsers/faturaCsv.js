@@ -1,4 +1,5 @@
 import { competenciaPorDatas } from './competenciaUtil.js';
+import { limparDescricao } from './descricaoUtil.js';
 
 function parseValorCSV(texto) {
   const limpo = texto.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
@@ -54,12 +55,13 @@ export function parseFaturaCsv(textoCSV, nomeArquivo, categorizar) {
 
   const transacoes = [];
   const encargos = [];
+  const creditos = [];
 
   for (let i = 1; i < linhas.length; i++) {
     const [dataTexto, tituloTexto, valorTexto] = parseLinhaCSV(linhas[i]);
     if (!dataTexto || !tituloTexto || valorTexto == null) continue;
 
-    const descricao = tituloTexto.trim();
+    const { descricao, antecipada } = limparDescricao(tituloTexto.trim());
     const valor = parseValorCSV(valorTexto);
     if (!Number.isFinite(valor)) continue;
 
@@ -69,6 +71,13 @@ export function parseFaturaCsv(textoCSV, nomeArquivo, categorizar) {
       .some((termo) => descricaoLower.includes(termo));
 
     if (ehPagamento) continue;
+
+    // Valor negativo que não é pagamento (ex: "Desconto Antecipação") é um
+    // abatimento — antes o Math.abs transformava ele em mais uma compra.
+    if (valor < 0) {
+      creditos.push({ data: dataTexto, descricao, valor: Math.abs(valor) });
+      continue;
+    }
 
     if (ehEncargo) {
       if (valor) encargos.push({ data: dataTexto, descricao, valor: Math.abs(valor) });
@@ -84,11 +93,25 @@ export function parseFaturaCsv(textoCSV, nomeArquivo, categorizar) {
       valor: Math.abs(valor),
       parcelaAtual: matchParcela ? parseInt(matchParcela[1], 10) : null,
       parcelaTotal: matchParcela ? parseInt(matchParcela[2], 10) : null,
+      ...(antecipada ? { antecipada: true } : {}),
       categoria: categorizar(nomeSemParcela),
     });
   }
 
-  const valorTotal = transacoes.reduce((s, t) => s + t.valor, 0) + encargos.reduce((s, e) => s + e.valor, 0);
+  // O CSV não escreve "Antecipada" na parcela adiantada (o PDF escreve) — a
+  // única pista é o "Desconto Antecipação" lançado no mesmo dia. Uma parcela
+  // 2/2 nesse dia é a antecipação de uma compra já existente, não outra compra.
+  const diasComAntecipacao = new Set(
+    creditos.filter((c) => /desconto antecipa/i.test(c.descricao)).map((c) => c.data)
+  );
+  for (const t of transacoes) {
+    if (t.parcelaAtual > 1 && diasComAntecipacao.has(t.data)) t.antecipada = true;
+  }
+
+  const valorTotal =
+    transacoes.reduce((s, t) => s + t.valor, 0) +
+    encargos.reduce((s, e) => s + e.valor, 0) -
+    creditos.reduce((s, c) => s + c.valor, 0);
   const competencia = competenciaPorDatas(transacoes, encargos, vencimento);
 
   return {
@@ -96,12 +119,13 @@ export function parseFaturaCsv(textoCSV, nomeArquivo, categorizar) {
     origem: 'csv',
     vencimento,
     competencia,
-    valorTotal: valorTotal || null,
+    valorTotal: valorTotal ? Math.round(valorTotal * 100) / 100 : null,
     valorTotalEstimado: true,
     limiteTotal: null,
     limiteUtilizado: null,
     pagamentoMinimo: null,
     transacoes,
     encargos,
+    creditos,
   };
 }

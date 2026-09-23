@@ -1,11 +1,14 @@
 import { collection, db, deleteDoc, doc, getDocs, onSnapshot, query, setDoc, updateDoc } from '../firebase/firestore.js';
+import { ehLegadoAntecipada, limparDescricao, semPrefixoCartao } from '../parsers/descricaoUtil.js';
 
 function parcelamentosRef(uid) {
   return collection(db, 'users', uid, 'parcelamentos');
 }
 
+// Sem o prefixo do cartão ("•••• 5163 "), pra que parcelamentos salvos
+// antes dessa limpeza continuem casando com a mesma compra vinda do CSV.
 function normalizar(texto) {
-  return texto.trim().toLowerCase();
+  return semPrefixoCartao(texto).toLowerCase();
 }
 
 function somarMeses(competencia, quantidade) {
@@ -30,20 +33,46 @@ function chaveParcelamento(descricao, parcelaTotal, primeiraCompetencia) {
 }
 
 export function encontrarDuplicatas(parcelamentos) {
+  const normais = parcelamentos.filter((p) => !ehLegadoAntecipada(p.descricao));
   const grupos = {};
-  for (const p of parcelamentos) {
+  for (const p of normais) {
     const chave = chaveParcelamento(p.descricao, p.parcelaTotal, p.primeiraCompetencia);
     (grupos[chave] ??= []).push(p);
   }
+
+  // Parcelamentos gravados antes da correção de antecipação: cada parcela
+  // antecipada ("Antecipada - Cia Brothers 2/3") virou um registro próprio,
+  // e a compra original ficou parada na parcela 1 como se ainda faltasse
+  // pagar. Junta cada um deles com a compra original que ele adiantou.
+  for (const antecipada of parcelamentos.filter((p) => ehLegadoAntecipada(p.descricao))) {
+    const nome = limparDescricao(antecipada.descricao).descricao.toLowerCase();
+    const original = normais
+      .filter(
+        (p) =>
+          normalizar(p.descricao) === nome &&
+          p.parcelaTotal === antecipada.parcelaTotal &&
+          p.parcelaAtual < antecipada.parcelaAtual &&
+          (p.ultimaCompetencia || '') <= (antecipada.ultimaCompetencia || '')
+      )
+      .sort((a, b) => (b.primeiraCompetencia || '').localeCompare(a.primeiraCompetencia || ''))[0];
+    if (!original) continue;
+    grupos[chaveParcelamento(original.descricao, original.parcelaTotal, original.primeiraCompetencia)].push(antecipada);
+  }
+
   return Object.values(grupos).filter((grupo) => grupo.length > 1);
 }
 
 export async function mesclarDuplicata(uid, grupo) {
   const parcelaAtual = Math.max(...grupo.map((p) => p.parcelaAtual));
-  const vencedor = grupo.find((p) => p.parcelaAtual === parcelaAtual);
+  // O registro que fica é sempre o da compra original — nunca o de uma
+  // parcela antecipada, que tem "Antecipada -" no nome e o mês de início
+  // calculado errado (a partir da parcela adiantada).
+  const originais = grupo.filter((p) => !ehLegadoAntecipada(p.descricao));
+  const base = originais.length > 0 ? originais : grupo;
+  const vencedor = [...base].sort((a, b) => b.parcelaAtual - a.parcelaAtual)[0];
   const competencias = grupo.map((p) => p.ultimaCompetencia).filter(Boolean).sort();
   const ultimaCompetencia = competencias[competencias.length - 1];
-  const primeiraCompetencia = grupo.map((p) => p.primeiraCompetencia).filter(Boolean).sort()[0];
+  const primeiraCompetencia = base.map((p) => p.primeiraCompetencia).filter(Boolean).sort()[0];
   // Mesmo esquema do backfill em corrigirMesesQuitacao: quita-se no mês em
   // que a última parcela é paga (vencimento), não no mês em que a compra foi
   // feita (competência) — usa o vencimento já salvo no vencedor e, na falta
@@ -51,6 +80,7 @@ export async function mesclarDuplicata(uid, grupo) {
   const ultimoVencimento = grupo.map((p) => p.ultimoVencimento).filter(Boolean).sort().pop() || somarMeses(ultimaCompetencia, 1);
 
   await updateDoc(doc(parcelamentosRef(uid), vencedor.id), {
+    descricao: limparDescricao(vencedor.descricao).descricao,
     parcelaAtual,
     primeiraCompetencia,
     ultimaCompetencia,
@@ -103,8 +133,16 @@ export async function mesclarParcelas(uid, fatura) {
 
   const snapshot = await getDocs(parcelamentosRef(uid));
   const existentes = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+  // Registros criados por esta mesma fatura — só usados pra achar a compra
+  // original de uma parcela antecipada. Não entram na busca das parcelas
+  // normais, porque duas linhas iguais na mesma fatura (ex: duas compras de
+  // 3x na "Ramon Auto Center" no mesmo dia) são compras diferentes.
+  const criados = [];
 
-  for (const transacao of transacoesParceladas) {
+  // Normais primeiro: a compra original precisa existir antes da parcela
+  // antecipada dela (no CSV a ordem é por data decrescente, então a 2/2
+  // antecipada aparece antes da 1/2).
+  for (const transacao of transacoesParceladas.filter((t) => !t.antecipada)) {
     // Casamento por descrição + total de parcelas + mês em que a compra
     // começou (não por valor, que pode variar centavos por arredondamento
     // do banco). O mês de início entra na chave pra não confundir duas
@@ -114,6 +152,7 @@ export async function mesclarParcelas(uid, fatura) {
     const chaveDescricao = normalizar(transacao.descricao);
     const existente = existentes.find(
       (p) =>
+        !ehLegadoAntecipada(p.descricao) &&
         normalizar(p.descricao) === chaveDescricao &&
         p.parcelaTotal === transacao.parcelaTotal &&
         (p.primeiraCompetencia || somarMeses(p.ultimaCompetencia, -(p.parcelaAtual - 1))) === primeiraCompetenciaImplicada
@@ -146,5 +185,78 @@ export async function mesclarParcelas(uid, fatura) {
 
     const ref = existente ? doc(parcelamentosRef(uid), existente.id) : doc(parcelamentosRef(uid));
     await setDoc(ref, dados, { merge: true });
+    if (existente) Object.assign(existente, dados);
+    else criados.push({ id: ref.id, ...dados });
+  }
+
+  for (const transacao of transacoesParceladas.filter((t) => t.antecipada)) {
+    // Parcela adiantada: avança a compra original que ainda está em
+    // andamento (mesmo nome e total, numa parcela anterior a esta). Com mais
+    // de uma candidata, fica com a mais adiantada e, empatando, a mais recente.
+    const chaveDescricao = normalizar(transacao.descricao);
+    const original = [...criados, ...existentes]
+      .filter(
+        (p) =>
+          !p.quitado &&
+          !ehLegadoAntecipada(p.descricao) &&
+          normalizar(p.descricao) === chaveDescricao &&
+          p.parcelaTotal === transacao.parcelaTotal &&
+          p.parcelaAtual < transacao.parcelaAtual
+      )
+      .sort(
+        (a, b) =>
+          b.parcelaAtual - a.parcelaAtual ||
+          (b.primeiraCompetencia || '').localeCompare(a.primeiraCompetencia || '')
+      )[0];
+
+    const ultimoVencimento = fatura.vencimento.slice(0, 7);
+
+    // Reimportando a mesma fatura, a compra original já está nessa parcela
+    // (ou além) — nada a fazer.
+    const jaContada = [...criados, ...existentes].some(
+      (p) =>
+        !ehLegadoAntecipada(p.descricao) &&
+        normalizar(p.descricao) === chaveDescricao &&
+        p.parcelaTotal === transacao.parcelaTotal &&
+        p.parcelaAtual >= transacao.parcelaAtual &&
+        (p.primeiraCompetencia || '') <= fatura.competencia
+    );
+    if (!original && jaContada) continue;
+
+    if (!original) {
+      // Compra original não encontrada (ex: a fatura em que ela começou não
+      // foi importada) — registra como parcelamento próprio pra não perder
+      // a informação.
+      const dados = {
+        banco: fatura.banco,
+        descricao: transacao.descricao,
+        categoria: transacao.categoria,
+        parcelaTotal: transacao.parcelaTotal,
+        parcelaAtual: transacao.parcelaAtual,
+        valorParcela: transacao.valor,
+        valorTotalEstimado: Math.round(transacao.valor * transacao.parcelaTotal * 100) / 100,
+        primeiraCompetencia: somarMeses(fatura.competencia, -(transacao.parcelaAtual - 1)),
+        ultimaCompetencia: fatura.competencia,
+        ultimoVencimento,
+        mesQuitacaoEstimado: somarMeses(ultimoVencimento, transacao.parcelaTotal - transacao.parcelaAtual),
+        quitado: transacao.parcelaAtual >= transacao.parcelaTotal,
+        atualizadoEm: new Date().toISOString(),
+      };
+      const ref = doc(parcelamentosRef(uid));
+      await setDoc(ref, dados);
+      criados.push({ id: ref.id, ...dados });
+      continue;
+    }
+
+    const dados = {
+      parcelaAtual: transacao.parcelaAtual,
+      ultimaCompetencia: fatura.competencia,
+      ultimoVencimento,
+      mesQuitacaoEstimado: somarMeses(ultimoVencimento, original.parcelaTotal - transacao.parcelaAtual),
+      quitado: transacao.parcelaAtual >= original.parcelaTotal,
+      atualizadoEm: new Date().toISOString(),
+    };
+    await updateDoc(doc(parcelamentosRef(uid), original.id), dados);
+    Object.assign(original, dados);
   }
 }

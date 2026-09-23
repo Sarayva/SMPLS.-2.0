@@ -101,8 +101,10 @@ function calcularProjecao(mes, medianaGastoAvista) {
   // projeção varia mês a mês conforme parcelas terminam de verdade, sem cair
   // "artificialmente" por ignorar que compras novas tendem a ocupar o lugar
   // das antigas.
+  // Créditos (ex: "Desconto Antecipação") abatem o total da fatura real.
   const totalCartao = faturaDoMes
-    ? (faturaDoMes.transacoes || []).reduce((s, t) => s + t.valor, 0)
+    ? (faturaDoMes.transacoes || []).reduce((s, t) => s + t.valor, 0) -
+      (faturaDoMes.creditos || []).reduce((s, c) => s + c.valor, 0)
     : medianaGastoAvista.mediana + totalParcelasConhecidas;
 
   const totalDasContas = totalContasFixas + totalCartao + totalEncargos;

@@ -1,4 +1,5 @@
 import { competenciaPorDatas } from './competenciaUtil.js';
+import { limparDescricao } from './descricaoUtil.js';
 
 const MESES = {
   JAN: '01', FEV: '02', MAR: '03', ABR: '04', MAI: '05', JUN: '06',
@@ -6,7 +7,7 @@ const MESES = {
 };
 
 const REGEX_LINHA_TRANSACAO =
-  /^(\d{2}\s+(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ))\s*(.*?)(?:\s*(?:-\s*)?(?:Parcela\s+)?(\d+)\/(\d+))?\s*(?:−|-)?R\$\s*([\d.]*,\d{2})$/i;
+  /^(\d{2}\s+(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ))\s*(.*?)(?:\s*(?:-\s*)?(?:Parcela\s+)?(\d+)\/(\d+))?\s*(−|-)?R\$\s*([\d.]*,\d{2})$/i;
 
 function paraNumero(valorTexto) {
   return parseFloat(valorTexto.replace(/\./g, '').replace(',', '.'));
@@ -61,16 +62,18 @@ export function parseNubank(linhas, categorizar) {
 
   const transacoes = [];
   const encargos = [];
+  const creditos = [];
   for (const linha of linhas) {
     if (!linha) continue;
     const match = linha.match(REGEX_LINHA_TRANSACAO);
     if (!match) continue;
 
     const [diaMes, mesAbrev] = match[1].trim().split(/\s+/);
-    const descricao = match[2].trim();
+    const { descricao, antecipada } = limparDescricao(match[2].trim());
     const parcelaAtual = match[3] ? parseInt(match[3], 10) : null;
     const parcelaTotal = match[4] ? parseInt(match[4], 10) : null;
-    const valor = paraNumero(match[5]);
+    const negativo = Boolean(match[5]);
+    const valor = paraNumero(match[6]);
 
     const descricaoLower = descricao.toLowerCase();
     const ehPagamento = descricaoLower.includes('pagamento em') || descricaoLower.includes('pagamento recebido');
@@ -79,6 +82,14 @@ export function parseNubank(linhas, categorizar) {
 
     if (!descricao) continue;
     if (ehPagamento) continue;
+
+    // Valor negativo que não é pagamento (ex: "Desconto Antecipação") é um
+    // abatimento na fatura — antes o sinal era ignorado e ele entrava como
+    // se fosse mais uma compra.
+    if (negativo) {
+      if (valor) creditos.push({ data: dataTransacaoISO(diaMes, mesAbrev), descricao, valor });
+      continue;
+    }
 
     if (ehEncargo) {
       if (valor) encargos.push({ data: dataTransacaoISO(diaMes, mesAbrev), descricao, valor });
@@ -91,6 +102,7 @@ export function parseNubank(linhas, categorizar) {
       valor,
       parcelaAtual,
       parcelaTotal,
+      ...(antecipada ? { antecipada: true } : {}),
       categoria: categorizar(descricao),
     });
   }
@@ -107,5 +119,6 @@ export function parseNubank(linhas, categorizar) {
     pagamentoMinimo,
     transacoes,
     encargos,
+    creditos,
   };
 }
