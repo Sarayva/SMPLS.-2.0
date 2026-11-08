@@ -6,8 +6,17 @@ const MESES = {
   JUL: '07', AGO: '08', SET: '09', OUT: '10', NOV: '11', DEZ: '12',
 };
 
+// Aceita dois formatos de fatura Nubank:
+//
+// Formato antigo:
+//   06 OUT  Nome da loja - Parcela 1/3  R$ 100,00
+//
+// Formato novo (com número do cartão no meio):
+//   06 OUT •••• 5804 Nome da loja - Parcela 1/3 R$ 100,00
+//
+// O grupo opcional (?:[^\w\s]{2,}\s*\d{4}\s+)? captura o "•••• 5804 " e o descarta.
 const REGEX_LINHA_TRANSACAO =
-  /^(\d{2}\s+(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ))\s*(.*?)(?:\s*(?:-\s*)?(?:Parcela\s+)?(\d+)\/(\d+))?\s*(−|-)?R\$\s*([\d.]*,\d{2})$/i;
+  /^(\d{2}\s+(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ))\s*(?:[^\w\s]{2,}\s*\d{4}\s+)?(.*?)(?:\s*-\s*Parcela\s+(\d+)\/(\d+))?\s*(−|-)?R\$\s*([\d.]*,\d{2})$/i;
 
 function paraNumero(valorTexto) {
   return parseFloat(valorTexto.replace(/\./g, '').replace(',', '.'));
@@ -27,7 +36,12 @@ export function pareceSerFaturaNubank(linhas) {
 export function parseNubank(linhas, categorizar) {
   const textoCompleto = linhas.join(' ');
 
-  const matchVencimento = textoCompleto.match(/Data de vencimento:\s*(\d{2})\s+([A-ZÇ]{3})\s+(\d{4})/i);
+  // Suporta formato antigo: "Data de vencimento: 13 NOV 2026"
+  // e formato novo no cabeçalho: "FATURA 13 NOV 2026"
+  let matchVencimento = textoCompleto.match(/Data de vencimento:\s*(\d{2})\s+([A-ZÇ]{3})\s+(\d{4})/i);
+  if (!matchVencimento) {
+    matchVencimento = textoCompleto.match(/FATURA\s+(\d{2})\s+([A-ZÇ]{3})\s+(\d{4})/i);
+  }
   const vencimento = matchVencimento
     ? paraDataISO(matchVencimento[1], matchVencimento[2], matchVencimento[3])
     : null;
@@ -46,8 +60,14 @@ export function parseNubank(linhas, categorizar) {
   // Algumas faturas trazem um bloco promocional de simulação de parcelamento
   // ("Parcelar em X meses... Total a pagar... Juros totais...") ANTES do
   // resumo real — por isso não basta pegar a primeira ocorrência de "Total a
-  // pagar". O total de verdade é sempre seguido por "Pagamento mínimo".
-  const matchTotal = textoCompleto.match(/Total a pagar\D*R\$\s*([\d.]*,\d{2})\D*Pagamento m[íi]nimo/i);
+  // pagar". O total de verdade é sempre seguido por "Pagamento mínimo" (formato
+  // antigo) ou é a última ocorrência de "Total a pagar" (formato novo).
+  let matchTotal = textoCompleto.match(/Total a pagar\D*R\$\s*([\d.]*,\d{2})\D*Pagamento m[íi]nimo/i);
+  if (!matchTotal) {
+    // Formato novo: sem "Pagamento mínimo" — pega a última ocorrência de "Total a pagar"
+    const matches = [...textoCompleto.matchAll(/Total a pagar\D{0,10}R\$\s*([\d.]*,\d{2})/gi)];
+    if (matches.length > 0) matchTotal = matches[matches.length - 1];
+  }
   const valorTotal = matchTotal ? paraNumero(matchTotal[1]) : null;
 
   let matchLimiteTotal = textoCompleto.match(/Limite total do cart[ãa]o de cr[ée]dito:\s*R\$\s*([\d.]*,\d{2})/i);

@@ -621,7 +621,7 @@ async function processarPdf(arquivo) {
 
   if (pareceSerFaturaNubank(linhas)) {
     const fatura = parseNubank(linhas, categorizar);
-    if (!fatura.valorTotal || fatura.transacoes.length === 0) {
+    if (fatura.transacoes.length === 0) {
       renderErro('Não consegui extrair os dados dessa fatura. O formato pode ter mudado.');
       return;
     }
