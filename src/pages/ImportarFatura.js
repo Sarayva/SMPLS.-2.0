@@ -620,7 +620,12 @@ async function processarPdf(arquivo) {
   const [linhas] = await Promise.all([extrairLinhas(arquivo), pronto]);
 
   if (pareceSerFaturaNubank(linhas)) {
+    // DEBUG TEMP
+    console.log('[DEBUG] Total linhas:', linhas.length);
+    console.log('[DEBUG] Primeiras 60 linhas:');
+    linhas.slice(0, 60).forEach((l, i) => console.log(i + ': ' + l));
     const fatura = parseNubank(linhas, categorizar);
+    console.log('[DEBUG] valorTotal:', fatura.valorTotal, '| transacoes:', fatura.transacoes.length);
     if (fatura.transacoes.length === 0) {
       renderErro('Não consegui extrair os dados dessa fatura. O formato pode ter mudado.');
       return;
