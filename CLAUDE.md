@@ -2,7 +2,43 @@
 
 Memória permanente do projeto. Leia este arquivo inteiro antes de continuar o desenvolvimento. Ele documenta tudo que foi decidido e construído até agora, para que qualquer sessão futura (ou após compactação de contexto) retome exatamente de onde paramos, sem repetir perguntas já respondidas ou desfazer decisões já tomadas.
 
-**Data da última atualização deste arquivo:** 2026-08-27 (documentação criada a pedido explícito do usuário, antes de qualquer mudança de código/design ser aplicada).
+**Data da última atualização deste arquivo:** 2026-11-23 (ver "Estado atual" abaixo). As seções 1 a 24 foram escritas em 2026-08-27 e são mantidas como histórico de decisões.
+
+---
+
+## Estado atual (2026-11-23) — prevalece sobre as seções antigas
+
+**Local e repositório**
+- Pasta do projeto: `C:\Users\Usuario\Desktop\Projetos\smpls`. A pasta `Desktop\smpls` não é mais o projeto.
+- Remoto: `github.com/Sarayva/SMPLS.-2.0` (**público**). Branch de trabalho: `master`. A `main` é apenas um espelho e deve ser avançada junto com a `master`.
+- **Todo push na `master` publica em produção** via `.github/workflows/deploy.yml` (GitHub Pages: `https://sarayva.github.io/SMPLS.-2.0/`). As variáveis Firebase do build vêm dos GitHub Secrets.
+- Como o repositório é público, não versionar dados financeiros ou pessoais reais.
+- Docker: `docker-compose.yml` sobe o servidor de desenvolvimento na porta 5173, com `restart: always`.
+
+**Telas atuais** (navegação em `src/components/Sidebar.js`)
+
+| Tela | HTML | Módulo |
+|---|---|---|
+| Login/Cadastro | `login.html` | `src/pages/Login.js` |
+| Visão geral | `index.html` | `src/pages/Dashboard.js` |
+| Contas fixas | `contas.html` | `src/pages/ContasFixas.js` |
+| Importar contas | `importar-contas.html` | `src/pages/ImportarContas.js` |
+| Importar fatura | `fatura.html` | `src/pages/ImportarFatura.js` |
+| Parcelamentos | `parcelamentos.html` | `src/pages/Parcelamentos.js` |
+| Renda | `renda.html` | `src/pages/Renda.js` |
+| Planejamento | `planejamento.html` | `src/pages/Planejamento.js` |
+| Perfil | `perfil.html` | `src/pages/Perfil.js` |
+
+As telas separadas `resumo.html` e `analises.html` foram removidas e o conteúdo foi para a Visão geral.
+
+**Mudanças de regra e estrutura desde 2026-08-27**
+- Identidade visual aplicada: Manrope carregada em `global.css`, com destaque azul (`#0078d4`, e `#60cdff` como destaque claro no tema escuro).
+- **Competência da fatura** é o mês predominante nas datas das compras (`src/parsers/competenciaUtil.js`), não o mês de vencimento. O "mês devido" do cartão usa o vencimento.
+- Importação: além do PDF Nubank, há parsers CSV de fatura, extrato e contas (`faturaCsv.js`, `extratoCsv.js`, `contasCsv.js`).
+- Transferências entre pessoas da família são reconhecidas para não contarem como gasto (`titularesService.js`, `familiaService.js`).
+- Assinaturas da fatura podem virar contas fixas (`contasCartaoService.js`).
+- Novas coleções em `users/{uid}`: `categoriasCompras`, `categoriasIgnoradas`, `extratos`, `titulares`, `vinculosContas` e o documento `config/familia`.
+- Coleção global `categoriasGlobaisCompras`: qualquer usuário autenticado pode ler e escrever (`firestore.rules`). A categoria pessoal tem prioridade sobre a global.
 
 ---
 
@@ -25,9 +61,9 @@ Atualmente (momento desta documentação) o projeto está numa **pausa deliberad
 
 SPA multi-página (cada tela é um `.html` próprio servido pelo Vite, não um router client-side) escrita em **Vanilla JS (ES Modules)**, sem framework (nem React, nem Vue), com **Firebase** (Authentication + Firestore) como backend. Roda 100% no navegador — não existe servidor próprio, backend customizado ou API própria.
 
-Local do projeto: `C:\Users\Usuario\Desktop\smpls` (pasta reaproveitada — já continha assets visuais soltos antes de virar o projeto: `1.jpg`, `2.jpg`, dois `.zip` de background vetorial; mantidos, não usados no código ainda).
+Local do projeto: `C:\Users\Usuario\Desktop\Projetos\smpls` (contém assets visuais anteriores ao projeto: `1.jpg`, `2.jpg`, dois `.zip` de background vetorial).
 
-Repositório git: **local apenas**, inicializado nesta pasta (`git init` feito por mim). Usuário decidiu explicitamente **não** criar/conectar repositório remoto no GitHub por enquanto ("deixar só local por enquanto"). 6 commits feitos até agora (ver seção 20).
+Repositório git: `github.com/Sarayva/SMPLS.-2.0`, branch `master` (ver "Estado atual").
 
 Telas existentes (todas atrás de autenticação, cada uma um `.html` na raiz + um módulo em `src/pages/`):
 
@@ -503,7 +539,7 @@ O documento cita **duas** cores de destaque diferentes: o teal `#14B8A6` (na pal
 
 ## 18. O que NÃO deve ser alterado sem autorização explícita do usuário
 
-- **Não criar/conectar um repositório remoto no GitHub** sem perguntar — decisão explícita de ficar "só local por enquanto".
+- **Não fazer push na `master` sem o usuário pedir** — todo push nessa branch publica em produção.
 - **Não reintroduzir uma tela dedicada de gestão de categorias** — foi pedido e depois explicitamente rejeitado pelo usuário.
 - **Não trocar a chave de mesclagem de parcelamentos para incluir o valor da parcela novamente** — foi a causa de um bug real já corrigido.
 - **Não trocar `initializeFirestore` com `persistentLocalCache` de volta pro `getFirestore()` simples** — corrige um bug real de perda de dados.
@@ -511,7 +547,6 @@ O documento cita **duas** cores de destaque diferentes: o teal `#14B8A6` (na pal
 - **Não adicionar GridStack.js, ApexCharts, Firebase App Check/reCAPTCHA, parsers de outros bancos, ou qualquer item do "whitepaper" antigo** sem o usuário pedir explicitamente — está deliberadamente fora do escopo atual (ver seção 5).
 - **Não inventar/assumir um símbolo/ícone de marca** — o documento de identidade visual diz explicitamente que isso "ainda não está definido" e "não deve ser definido por suposição durante o desenvolvimento".
 - **Não misturar/empacotar múltiplas telas numa entrega só** — construir e reportar uma de cada vez continua sendo a regra.
-- **Não aplicar as mudanças de cor/fonte da seção 14 até o usuário autorizar** — ele pediu explicitamente para eu documentar tudo primeiro e esperar autorização antes de qualquer mudança de código.
 
 ---
 
@@ -545,7 +580,7 @@ O documento cita **duas** cores de destaque diferentes: o teal `#14B8A6` (na pal
 
 ```bash
 # Instalar dependências
-cd "C:\Users\Usuario\Desktop\smpls"
+cd "C:\Users\Usuario\Desktop\Projetos\smpls"
 npm install
 
 # Rodar em desenvolvimento (http://localhost:5173)
@@ -558,14 +593,14 @@ npm run build
 npm run preview
 ```
 
-**Git** (repositório local, sem remoto configurado):
+**Git** (remoto `origin`, branch `master`; push na `master` publica em produção):
 ```bash
-cd "C:\Users\Usuario\Desktop\smpls"
+cd "C:\Users\Usuario\Desktop\Projetos\smpls"
 git status
 git log --oneline
 ```
 
-Histórico de commits até agora (mais recente primeiro):
+Primeiros commits do projeto, até 2026-08-27 (para o histórico atual, use `git log`):
 ```
 c0a212e feat: análises comparativas de gastos por mês
 a5dd6bc feat: detectar e corrigir parcelamentos duplicados
@@ -593,8 +628,8 @@ Fatura reais do Nubank usadas para testar (dados reais do usuário): `C:\Users\U
 - ✅ Parte 1 (Contas fixas) — completa, testada.
 - ✅ Parte 2 (Importar fatura Nubank) — completa, testada com PDFs reais.
 - ✅ Extensão da Parte 2 — Parcelamentos, Renda, Resumo, Categorização embutida, Análises — todas completas e testadas.
-- ⏸️ **Pausado agora**: redesenho visual (identidade do documento `.docx`) — análise feita, aplicação **não iniciada**, aguardando autorização do usuário (que disse que daria essa autorização logo depois de eu terminar este `CLAUDE.md`).
-- ❓ Pendente de confirmação do usuário: se ele já corrigiu as duplicatas de parcelamento na conta real dele, e qual das duas leituras da cor de destaque (teal no claro / azul no escuro) ele quer.
+- ✅ Redesenho visual aplicado (commit `99ceaa1`).
+- ❓ Pendente de confirmação do usuário: se ele já corrigiu as duplicatas de parcelamento na conta real dele.
 
 ---
 
@@ -612,8 +647,7 @@ Depois disso, não há uma "próxima parte" combinada — o que vier depois (Par
 
 ## 23. TODOs e pendências (lista objetiva)
 
-- [ ] Confirmar escolha de cor de destaque por tema (teal claro / azul escuro) com o usuário.
-- [ ] Aplicar paleta de cores + Manrope (redesenho visual) — só depois de autorização.
+- [x] Aplicar paleta de cores + Manrope (redesenho visual), com destaque azul nos dois temas.
 - [ ] Confirmar com o usuário se ele corrigiu as duplicatas legadas de parcelamento na conta real.
 - [ ] (Sem prazo/prioridade definida) Avaliar suporte a outros bancos no importador de fatura.
 - [ ] (Sem prazo/prioridade definida) Avaliar se algum elemento do "whitepaper" antigo entra em algum momento (GridStack, ApexCharts, App Check) — só se o usuário pedir.
